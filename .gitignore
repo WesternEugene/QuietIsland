@@ -6,4 +6,5 @@ artifacts/
 *.user
 Run.cmd
 docs/
-README.md
+integrations/README.md
+packaging/README.md
