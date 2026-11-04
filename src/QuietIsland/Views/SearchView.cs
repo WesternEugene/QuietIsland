@@ -65,6 +65,11 @@ public sealed class SearchView : IslandView
     }
     private void SelectFirst() { if (list.SelectedItem == null) list.SelectedItem = list.Items.OfType<ListBoxItem>().FirstOrDefault(actions.ContainsKey); }
     private static bool IsApplication(SearchResult result) => result.Kind == "Приложение" || Path.GetExtension(result.Path).ToLowerInvariant() is ".exe" or ".lnk" or ".appref-ms";
+    private SearchResult[] FindApplications(string input) => C.Applications
+        .Select(app => (App: app, Score: ApplicationMatcher.Score(app.Name, input)))
+        .Where(match => match.Score > 0).OrderByDescending(match => match.Score)
+        .ThenBy(match => match.App.Name, StringComparer.CurrentCultureIgnoreCase)
+        .Take(10).Select(match => match.App).ToArray();
     private async Task SearchAsync()
     {
         search?.Cancel(); search = new(); var token = search.Token;
@@ -101,12 +106,12 @@ public sealed class SearchView : IslandView
                 case CommandKind.System: Add(command.Text, command.Text is "wifi" or "wi-fi" or "bluetooth" ? "Enter — переключить радиомодуль" : "Системная команда", "☷", () => { _ = C.RunSystemCommandAsync(command.Text); C.Collapse(); }); break;
                 case CommandKind.Web: Add("Искать в интернете: " + command.Text, "Открыть браузер", "↗", () => SystemService.Open("https://www.google.com/search?q=" + Uri.EscapeDataString(command.Text))); break;
                 default:
-                    var apps = C.Applications.Where(x => x.Name.Contains(input, StringComparison.CurrentCultureIgnoreCase)).OrderByDescending(x => x.Name.StartsWith(input, StringComparison.CurrentCultureIgnoreCase)).ThenBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase).Take(10).ToArray();
+                    var apps = FindApplications(input);
                     if (apps.Length > 0) { GroupHeading("Приложения"); foreach (var app in apps) AddResult(app); SelectFirst(); }
                     hint.Text = apps.Length > 0 ? "Приложения найдены · ищу файлы…" : "Ищу файлы и папки…";
                     var results = await C.Everything.SearchAsync(input, token); token.ThrowIfCancellationRequested(); if (Disposed) return;
                     // Discovery may finish while Everything is answering the first startup query.
-                    var lateApps = C.Applications.Where(x => x.Name.Contains(input, StringComparison.CurrentCultureIgnoreCase)).OrderByDescending(x => x.Name.StartsWith(input, StringComparison.CurrentCultureIgnoreCase)).Where(x => !apps.Any(a => a.Path.Equals(x.Path, StringComparison.OrdinalIgnoreCase))).Take(10).ToArray();
+                    var lateApps = FindApplications(input).Where(x => !apps.Any(a => a.Path.Equals(x.Path, StringComparison.OrdinalIgnoreCase))).ToArray();
                     if (lateApps.Length > 0) { if (apps.Length == 0) GroupHeading("Приложения"); foreach (var app in lateApps) AddResult(app); apps = apps.Concat(lateApps).ToArray(); SelectFirst(); }
                     catalog = C.Applications;
                     var known = apps.Select(x => x.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);

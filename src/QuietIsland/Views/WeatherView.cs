@@ -42,7 +42,7 @@ public sealed class WeatherView : IslandView
         temperature.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "Text");
         System.Windows.Automation.AutomationProperties.SetName(temperature, "Температура: " + temperatureText);
         var reading = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 8) }; reading.Children.Add(weatherGlyph); reading.Children.Add(temperature);
-        var hero = Ui.Stack(Ui.Text(C.Settings.WeatherCity, 18, bold: true), reading, Ui.Text(WeatherService.Description(w.Code) + $" · ощущается как {w.FeelsLike:0}°", 14), Ui.Text($"Ветер {w.Wind:0} км/ч · влажность {w.Humidity:0}%", 11, "Muted")); forecast.Children.Add(Ui.Card(hero, 20));
+        var hero = Ui.Stack(Ui.Text(C.Settings.WeatherCity, 18, bold: true), reading, Ui.Text(WeatherService.Description(w.Code) + $" · ощущается как {w.FeelsLike:0}°", 14), Ui.Text($"Ветер {w.Wind:0.#} м/с · влажность {w.Humidity:0}%", 11, "Muted")); forecast.Children.Add(Ui.Card(hero, 20));
         if (w.Hours.Take(2).Any(x => x.Rain >= 60)) forecast.Children.Add(Ui.Card(Ui.Text("☂ В ближайший час вероятны осадки", 13, "Accent")));
         var hours = new StackPanel { Orientation = Orientation.Horizontal };
         foreach (var h in w.Hours) { var box = Ui.Stack(Ui.Text(DateTime.Parse(h.Time).ToString("HH:mm"), 10, "Muted"), Icons.Weather(h.Code, 25), Ui.Text($"{h.Temperature:0}°", 14), Ui.Text($"{h.Rain:0}%", 9, "Muted")); box.Width = 54; hours.Children.Add(box); }

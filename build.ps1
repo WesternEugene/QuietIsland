@@ -17,6 +17,8 @@ if (-not (Test-Path -LiteralPath $islandDotnet)) {
 if (-not $SkipTests) {
     & $islandDotnet test 'tests\QuietIsland.Tests\QuietIsland.Tests.csproj' -c Release --nologo -v minimal
     if ($LASTEXITCODE -ne 0) { throw 'Тесты .NET не прошли.' }
+    & $islandDotnet run --project 'tests\QuietIsland.DesktopChecks\QuietIsland.DesktopChecks.csproj' -c Release --no-launch-profile
+    if ($LASTEXITCODE -ne 0) { throw 'Проверки поиска и погоды не прошли.' }
     if (Get-Command node -ErrorAction SilentlyContinue) { node --test 'integrations\protocol.test.mjs'; if ($LASTEXITCODE -ne 0) { throw 'Тесты интеграций не прошли.' } }
 }
 & $islandDotnet publish 'src\QuietIsland\QuietIsland.csproj' -c Release -r win-x64 --self-contained $SelfContained.ToString().ToLowerInvariant() -o 'artifacts\QuietIsland' --nologo -v minimal
