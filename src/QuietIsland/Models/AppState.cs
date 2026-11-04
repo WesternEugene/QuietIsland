@@ -91,12 +91,14 @@ public class AppSettings
 public class AppState
 {
     public AppSettings Settings { get; set; } = new();
+    [System.Text.Json.Serialization.JsonIgnore]
     public List<ClipEntry> Clipboard { get; set; } = [];
     public List<string> Shelf { get; set; } = [];
     public List<Note> Notes { get; set; } = [new() { Title = "Мои заметки", Text = "" }];
     public List<Reminder> Reminders { get; set; } = [];
     public List<ChatMessage> Chat { get; set; } = [];
     public List<LaunchItem> Launcher { get; set; } = [];
+    public bool LauncherDefaultsInitialized { get; set; }
     public List<string> Colors { get; set; } = [];
     public DateTimeOffset? TimerEnd { get; set; }
     public bool TimerPaused { get; set; }

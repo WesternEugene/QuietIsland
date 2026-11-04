@@ -49,7 +49,7 @@ public sealed class LyricsService : IDisposable
     {
         client = handler == null ? new HttpClient() : new HttpClient(handler);
         client.Timeout = TimeSpan.FromSeconds(12); client.MaxResponseContentBufferSize = 512 * 1024;
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("QuietIsland/1.4.0 (Windows desktop lyrics)");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd($"QuietIsland/{typeof(LyricsService).Assembly.GetName().Version?.ToString(3)} (Windows desktop lyrics)");
         client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
     }
 

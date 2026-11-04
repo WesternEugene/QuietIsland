@@ -150,6 +150,10 @@ public static class Icons
         var g = new Glyph(accent ?? Accent(name), resource);
         switch (name)
         {
+            case "repeat":
+                g.Path("M19.5,8 A8,8 0 0 0 5,6.5 L3.5,9 M3.5,4.5 V9 H8", width: 1.9);
+                g.Path("M4.5,16 A8,8 0 0 0 19,17.5 L20.5,15 M16,15 H20.5 V19.5", width: 1.9);
+                break;
             case "home":
                 g.Path("M4.5,10.5 V19 A2,2 0 0 0 6.5,21 H17.5 A2,2 0 0 0 19.5,19 V10.5", Tone.Soft);
                 g.Path("M2.8,10.4 L10.5,3.7 Q12,2.4 13.5,3.7 L21.2,10.4", width: 2.1);

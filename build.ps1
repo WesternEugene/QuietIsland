@@ -21,7 +21,7 @@ if (-not $SkipTests) {
 }
 & $islandDotnet publish 'src\QuietIsland\QuietIsland.csproj' -c Release -r win-x64 --self-contained $SelfContained.ToString().ToLowerInvariant() -o 'artifacts\QuietIsland' --nologo -v minimal
 if ($LASTEXITCODE -ne 0) { throw 'Сборка не прошла.' }
-Copy-Item -LiteralPath 'README.md','THIRD_PARTY_NOTICES.md' -Destination 'artifacts\QuietIsland'
+Copy-Item -LiteralPath 'README.md','CHANGELOG.md','THIRD_PARTY_NOTICES.md' -Destination 'artifacts\QuietIsland'
 Copy-Item -LiteralPath 'integrations' -Destination 'artifacts\QuietIsland' -Recurse -Force
 Copy-Item -LiteralPath 'docs','packaging' -Destination 'artifacts\QuietIsland' -Recurse -Force
 if ($Diagnose) {
@@ -34,6 +34,8 @@ if ($Diagnose) {
     if ($islandFailedUi.Count -gt 0) { throw ('Проверки интерфейса не прошли: ' + ($islandFailedUi.Name -join ', ')) }
     $islandFailedWorkflows = @($report.desktopWorkflows.PSObject.Properties | Where-Object { $_.Value -ne $true })
     if (-not $report.desktopWorkflows -or $islandFailedWorkflows.Count -gt 0) { throw ('Проверки рабочих сценариев не прошли: ' + ($islandFailedWorkflows.Name -join ', ')) }
+    $islandFailedInteractions = @($report.interactionWorkflows.PSObject.Properties | Where-Object { $_.Value -ne $true })
+    if (-not $report.interactionWorkflows -or $islandFailedInteractions.Count -gt 0) { throw ('Проверки ярлыков, таймера и буфера не прошли: ' + ($islandFailedInteractions.Name -join ', ')) }
     $islandMotionChecks = @('stableNativeBounds','noLayoutPerAnimationFrame','transparentBoundsPassThrough','visibleNotchReceivesInput','compactTextStaysInsideSurface','reversalKeepsPanelContent','layoutChangeAnimates','capsOnAnimates','capsOffAnimates','inputAnimationsSettle')
     $islandFailedMotion = @($islandMotionChecks | Where-Object { $report.motion.$_ -ne $true })
     if ($islandFailedMotion.Count -gt 0) { throw ('Проверки движения не прошли: ' + ($islandFailedMotion -join ', ')) }

@@ -1,5 +1,5 @@
 #define AppName "Quiet Island"
-#define AppVersion "1.4.0"
+#define AppVersion "1.1.0"
 #define AppExeName "QuietIsland.exe"
 
 [Setup]

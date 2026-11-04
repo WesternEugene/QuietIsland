@@ -130,12 +130,7 @@ public sealed class SearchView : IslandView
         else SystemService.Open(result.Path);
         C.Collapse();
     }, result);
-    private void AddPin()
-    {
-        var target = Windows.Dialogs.Ask("Добавить ярлык", "Путь к программе, https://сайт или steam://run/…"); if (string.IsNullOrWhiteSpace(target)) return;
-        var name = Windows.Dialogs.Ask("Название ярлыка", "Название", Path.GetFileNameWithoutExtension(target)); if (string.IsNullOrWhiteSpace(name)) return;
-        C.State.Data.Launcher.Add(new() { Name = name, Target = target }); C.State.Touch(); BuildPins();
-    }
+    private void AddPin() => LauncherActions.Add(C, BuildPins);
     private void BuildPins()
     {
         pins.Children.Clear(); group.Children.Clear();
@@ -150,12 +145,6 @@ public sealed class SearchView : IslandView
         }
     }
     private Button PinButton(LaunchItem pin) { var button = Ui.Button(pin.Name, () => { SystemService.Open(pin.Target); C.Collapse(); }); button.ContextMenu = PinMenu(pin); return button; }
-    private ContextMenu PinMenu(LaunchItem pin)
-    {
-        var menu = new ContextMenu();
-        foreach (var (name, action) in new (string, Action)[] { ("Изменить ссылку", () => { var target = Windows.Dialogs.Ask(pin.Name, "Путь или URL", pin.Target); if (target != null) pin.Target = target; }), ("Группа", () => { var name = Windows.Dialogs.Ask("Группа", "Пусто — отдельный ярлык", pin.Group); if (name != null) pin.Group = name; }), ("Горячая клавиша", () => { var hotkey = Windows.Dialogs.Ask("Горячая клавиша", "Например Ctrl+Alt+1; применить в настройках", pin.Hotkey); if (hotkey != null) pin.Hotkey = hotkey; }), ("Убрать ярлык", () => C.State.Data.Launcher.Remove(pin)) })
-        { var item = new MenuItem { Header = name, Icon = Icons.Colored(name switch { "Изменить ссылку" => "file", "Группа" => "folder", "Горячая клавиша" => "command", _ => "trash" }, 16) }; item.Click += (_, _) => { action(); C.State.Touch(); BuildPins(); }; menu.Items.Add(item); }
-        return menu;
-    }
+    private ContextMenu PinMenu(LaunchItem pin) => LauncherActions.Menu(C, pin, BuildPins);
     public override void Dispose() { search?.Cancel(); search?.Dispose(); base.Dispose(); }
 }

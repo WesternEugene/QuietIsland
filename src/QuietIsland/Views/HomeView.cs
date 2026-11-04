@@ -21,6 +21,8 @@ public sealed class HomeView : IslandView
     private bool paletteReady;
     private readonly StackPanel saved = new() { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
     private readonly ScrollViewer launcherScroll;
+    private readonly StackPanel launcher = new() { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+    private string launcherKey = "";
     private readonly ComboBox outputs = new() { ItemTemplate = Ui.OptionLabel("Name"), SelectedValuePath = "Id", FontSize = 11, MinHeight = 28, Margin = new Thickness(10, 0, 0, 0), Width = 140, ToolTip = "Устройство вывода звука" };
     private readonly Func<IReadOnlyList<(string Id, string Name)>> readOutputs;
     private bool updatingOutputs;
@@ -77,28 +79,28 @@ public sealed class HomeView : IslandView
         Tool("command", "Команда", () => { C.Go("search", true); return Task.CompletedTask; });
         Grid.SetColumn(tools, 2); columns.Children.Add(tools);
 
-        var launcher = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        BuildLauncher();
+        launcherScroll = new ScrollViewer { Content = launcher, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden, PanningMode = PanningMode.HorizontalOnly, CanContentScroll = false };
+        var dock = Ui.Card(launcherScroll, 5); dock.Margin = new Thickness(0, 3, 6, 0); Grid.SetRow(dock, 1); root.Children.Add(dock); Grid.SetRow(saved, 1); root.Children.Add(saved); Content = root; Refresh();
+    }
+    private void BuildLauncher()
+    {
+        var key = string.Join("\0", C.State.Data.Launcher.Select(item => item.Name + "|" + item.Target + "|" + item.Group + "|" + item.Hotkey));
+        if (key == launcherKey && launcher.Children.Count > 0) return;
+        launcherKey = key; launcher.Children.Clear();
         foreach (var item in C.State.Data.Launcher)
         {
             var b = Ui.Button(item.Name, () => { try { SystemService.Open(item.Target); C.Collapse(); } catch (Exception e) { C.Error(e); } });
             b.Width = b.Height = 42; b.Padding = new Thickness(0); b.Background = Brushes.Transparent; b.Margin = new Thickness(0, 0, 8, 0); b.ToolTip = item.Name;
             b.Content = Icons.Launcher(item.Target, item.Name, 38);
+            b.ContextMenu = LauncherActions.Menu(C, item, BuildLauncher);
             launcher.Children.Add(b);
         }
-        if (C.State.Data.Launcher.Count == 0)
-        {
-            foreach (var (name, exe) in new[] { ("Проводник", "explorer.exe"), ("Блокнот", "notepad.exe"), ("Терминал", "powershell.exe"), ("Калькулятор", "calc.exe"), ("Параметры Windows", "ms-settings:") })
-            {
-                var shortcut = Ui.Button("", () => { try { SystemService.Open(exe); C.Collapse(); } catch (Exception e) { C.Error(e); } }); shortcut.Content = Icons.Launcher(exe, name, 38); shortcut.ToolTip = name; shortcut.Width = shortcut.Height = 42; shortcut.Padding = new Thickness(0); shortcut.Margin = new Thickness(0, 0, 8, 0); shortcut.Background = Brushes.Transparent;
-                launcher.Children.Add(shortcut);
-            }
-        }
-        launcher.Children.Add(Icons.Button("plus", "Добавить ярлык · откроется поиск", () => C.Go("search", true), 38));
-        launcherScroll = new ScrollViewer { Content = launcher, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden, PanningMode = PanningMode.HorizontalOnly, CanContentScroll = false };
-        var dock = Ui.Card(launcherScroll, 5); dock.Margin = new Thickness(0, 3, 6, 0); Grid.SetRow(dock, 1); root.Children.Add(dock); Grid.SetRow(saved, 1); root.Children.Add(saved); Content = root; Refresh();
+        launcher.Children.Add(Icons.Button("plus", "Добавить ярлык", () => LauncherActions.Add(C, BuildLauncher), 38));
     }
     public override void Refresh()
     {
+        BuildLauncher();
         var m = C.Media.Current;
         title.Text = m.HasMedia ? m.Title : "Музыка"; artist.Text = m.HasMedia ? m.Artist : "Нет активного плеера"; cover.Source = m.Cover; coverPlaceholder.Visibility = m.Cover == null ? Visibility.Visible : Visibility.Hidden;
         if (!paletteReady || !ReferenceEquals(coloredCover, m.Cover))

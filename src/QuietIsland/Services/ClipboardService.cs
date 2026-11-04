@@ -21,7 +21,7 @@ public sealed class ClipboardService(DesktopState state)
             else if (System.Windows.Clipboard.ContainsImage())
             {
                 var bitmap = System.Windows.Clipboard.GetImage();
-                var folder = Path.Combine(DesktopState.DataDirectory, "clipboard"); Directory.CreateDirectory(folder);
+                var folder = Path.Combine(state.DirectoryPath, "clipboard"); Directory.CreateDirectory(folder);
                 var path = Path.Combine(folder, Guid.NewGuid().ToString("N") + ".png");
                 var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
                 using (var stream = File.Create(path)) encoder.Save(stream);
@@ -60,11 +60,11 @@ public sealed class ClipboardService(DesktopState state)
         finally { writing = false; }
     }
     public void Remove(ClipEntry entry) { state.Data.Clipboard.Remove(entry); RemoveOwnedImage(entry); state.Touch(); Changed?.Invoke(); }
-    private static void RemoveOwnedImage(ClipEntry entry)
+    private void RemoveOwnedImage(ClipEntry entry)
     {
         if (entry.ImagePath == null) return;
-        var folder = Path.GetFullPath(Path.Combine(DesktopState.DataDirectory, "clipboard")) + Path.DirectorySeparatorChar;
+        var folder = Path.GetFullPath(Path.Combine(state.DirectoryPath, "clipboard")) + Path.DirectorySeparatorChar;
         try { if (Path.GetFullPath(entry.ImagePath).StartsWith(folder, StringComparison.OrdinalIgnoreCase)) File.Delete(entry.ImagePath); }
-        catch (IOException) { }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { Log.Write("Clipboard image cleanup", error); }
     }
 }

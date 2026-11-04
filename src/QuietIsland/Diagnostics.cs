@@ -17,7 +17,7 @@ public static class Diagnostics
         using var c = new IslandContext(Path.Combine(directory, "diagnostic-state"));
         var results = new Dictionary<string, object>();
         if (args.Contains("--motion-checks")) results["motion"] = await MotionChecks.RunAsync(Path.Combine(directory, "motion-state"));
-        if (args.Contains("--ui-checks")) { results["uiRegressions"] = await UiRegressionChecks.RunAsync(c); results["desktopWorkflows"] = await DesktopWorkflowChecks.RunAsync(Path.Combine(directory, "workflow-state")); }
+        if (args.Contains("--ui-checks")) { results["uiRegressions"] = await UiRegressionChecks.RunAsync(c); results["desktopWorkflows"] = await DesktopWorkflowChecks.RunAsync(Path.Combine(directory, "workflow-state")); results["interactionWorkflows"] = await InteractionWorkflowChecks.RunAsync(Path.Combine(directory, "interaction-state")); }
         if (args.Contains("--diagnostics"))
         {
             var probe = Path.Combine(AppContext.BaseDirectory, "quiet-island-probe-" + Guid.NewGuid().ToString("N") + ".txt");
