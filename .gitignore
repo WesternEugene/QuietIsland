@@ -1,0 +1,9 @@
+.tools/
+**/bin/
+**/obj/
+artifacts/
+.vs/
+*.user
+Run.cmd
+docs/
+README.md
