@@ -9,7 +9,7 @@ public sealed record AppRelease(Version Version, string Tag, Uri Page, string No
     public string DisplayVersion => Version.Revision > 0 ? Version.ToString(4) : Version.ToString(3);
     public bool CanInstall => InstallerName != null && InstallerUrl != null && Size > 0;
 
-    public static AppRelease? Parse(string json, Version current)
+    public static AppRelease? Parse(string json, Version current, bool currentIsPrerelease = false)
     {
         using var document = JsonDocument.Parse(json);
         var root = document.RootElement;
@@ -17,7 +17,7 @@ public sealed record AppRelease(Version Version, string Tag, Uri Page, string No
         var tag = Text(root, "tag_name");
         if (!System.Version.TryParse(tag.TrimStart('v', 'V'), out var parsed)) return null;
         var version = Normalize(parsed);
-        if (version <= Normalize(current)) return null;
+        if (version < Normalize(current) || version == Normalize(current) && !currentIsPrerelease) return null;
         var page = new Uri($"https://github.com/{Repository}/releases/tag/{Uri.EscapeDataString(tag)}");
         var release = new AppRelease(version, tag, page, Text(root, "body"));
         var expected = $"QuietIsland-{release.DisplayVersion}-Setup-win-x64.exe";

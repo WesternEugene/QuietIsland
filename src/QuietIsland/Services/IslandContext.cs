@@ -65,5 +65,5 @@ public sealed class IslandContext : IDisposable
         State.Data.TimerDuration = State.Data.TimerRemaining = duration.TotalSeconds;
         State.Data.TimerEnd = DateTimeOffset.Now.Add(duration); State.Data.TimerPaused = false; State.Touch(); Notify("Таймер запущен · " + Controls.Ui.Time(duration.TotalSeconds));
     }
-    public void Dispose() { Updates.Dispose(); State.Save(); Everything.Dispose(); Media.Dispose(); Lyrics.Dispose(); Devices.Dispose(); Happ.Dispose(); Activity.Dispose(); Agents.Dispose(); Recording.Dispose(); Speech.Dispose(); Obs.Dispose(); }
+    public void Dispose() { Updates.Dispose(); State.Save(); Everything.Dispose(); Media.Dispose(); Lyrics.Dispose(); Devices.Dispose(); Happ.Dispose(); Activity.Dispose(); Agents.Dispose(); Ai.Dispose(); Recording.Dispose(); Speech.Dispose(); Obs.Dispose(); }
 }

@@ -14,7 +14,7 @@ public sealed class UpdateClient : IDisposable
         this.http = http ?? new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
     }
 
-    public async Task<AppRelease?> CheckAsync(Version current, CancellationToken cancellationToken = default)
+    public async Task<AppRelease?> CheckAsync(Version current, CancellationToken cancellationToken = default, bool currentIsPrerelease = false)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(TimeSpan.FromSeconds(15));
@@ -23,7 +23,7 @@ public sealed class UpdateClient : IDisposable
         using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token).ConfigureAwait(false);
         if (response.StatusCode == HttpStatusCode.NotFound) return null;
         response.EnsureSuccessStatusCode();
-        return AppRelease.Parse(await response.Content.ReadAsStringAsync(deadline.Token).ConfigureAwait(false), current);
+        return AppRelease.Parse(await response.Content.ReadAsStringAsync(deadline.Token).ConfigureAwait(false), current, currentIsPrerelease);
     }
 
     public async Task<string> DownloadAsync(AppRelease release, string directory, IProgress<double>? progress = null, CancellationToken cancellationToken = default)

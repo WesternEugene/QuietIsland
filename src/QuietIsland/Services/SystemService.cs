@@ -84,8 +84,11 @@ public sealed class SystemService(DesktopState state)
     }
     public static void AutoStart(bool enabled)
     {
-        using var key = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run");
-        if (enabled) key.SetValue("QuietIsland", "\"" + Environment.ProcessPath + "\""); else key.DeleteValue("QuietIsland", false);
+        const string run = @"Software\Microsoft\Windows\CurrentVersion\Run";
+        if (!enabled) { using var existing = Registry.CurrentUser.OpenSubKey(run, writable: true); existing?.DeleteValue("QuietIsland", false); return; }
+        var executable = Environment.ProcessPath ?? throw new InvalidOperationException("Не удалось определить путь к Quiet Island.");
+        using var key = Registry.CurrentUser.CreateSubKey(run);
+        key.SetValue("QuietIsland", "\"" + executable + "\"", RegistryValueKind.String);
     }
-    public static bool AutoStartEnabled() { using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run"); return key?.GetValue("QuietIsland") != null; }
+    public static bool AutoStartEnabled() { using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run"); return key?.GetValue("QuietIsland") is string value && !string.IsNullOrWhiteSpace(value); }
 }

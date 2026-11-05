@@ -67,7 +67,7 @@ public partial class MainWindow
     {
         if (selectionBusy) { c.Notify("Сначала завершите выбор области. Esc отменяет выделение."); return; }
         selectionBusy = true;
-        try { Collapse(); await Task.Delay(300); new Windows.AnnotationWindow(CaptureService.Screen(System.Windows.Forms.SystemInformation.VirtualScreen), c).Show(); }
+        try { Collapse(); await Task.Delay(300); await SaveScreenshotAsync(CaptureService.Screen(System.Windows.Forms.SystemInformation.VirtualScreen)); }
         catch (Exception e) { c.Error(e); }
         finally { selectionBusy = false; }
     }

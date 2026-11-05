@@ -16,13 +16,28 @@ namespace QuietIsland.Services;
 public sealed record CaptureResult(BitmapSource Image, Rectangle Bounds);
 public sealed class CaptureService(DesktopState state)
 {
-    public async Task<CaptureResult?> SelectAsync(bool color = false)
+    public async Task<CaptureResult?> SelectAsync(bool color = false, bool annotate = false)
     {
         await Task.Delay(160);
         var bounds = System.Windows.Forms.SystemInformation.VirtualScreen;
+        var windows = color ? [] : CaptureWindows.Snapshot();
         var image = Screen(bounds);
-        var window = new Windows.SelectionWindow(image, bounds, color);
+        var window = new Windows.SelectionWindow(image, bounds, color, annotate, windows);
         return window.ShowDialog() == true ? window.Result : null;
+    }
+    public async Task<string> SaveAndCopyAsync(BitmapSource image)
+    {
+        var path = NewPath(".png");
+        await Task.Run(() => SavePng(image, path));
+        for (var attempt = 0; ; attempt++)
+        {
+            try { System.Windows.Clipboard.SetImage(image); return path; }
+            catch (ExternalException error)
+            {
+                if (attempt >= 4) throw new InvalidOperationException("Снимок сохранён: " + path + ". Не удалось скопировать: буфер обмена занят.", error);
+                await Task.Delay(60);
+            }
+        }
     }
     public static BitmapSource Screen(Rectangle bounds)
     {

@@ -25,6 +25,13 @@ public sealed class MediaService : IDisposable
     private DateTime audioRetry;
     private readonly object audioGate = new();
     private readonly float[] samples = new float[1024];
+    private readonly Complex[] fft = new Complex[1024];
+    private static readonly float[] Window = Enumerable.Range(0, 1024).Select(i => (float)FastFourierTransform.HammingWindow(i, 1024)).ToArray();
+    private static readonly (int Start, int End)[] Bands = Enumerable.Range(0, 32).Select(i =>
+    {
+        var start = Math.Clamp((int)Math.Pow(500, i / 32.0), 1, 500);
+        return (start, Math.Clamp((int)Math.Pow(500, (i + 1) / 32.0), start + 1, 512));
+    }).ToArray();
     private int sampleIndex;
     private readonly float[] spectrum = new float[32];
     private static readonly float[] Silence = new float[32];
@@ -182,13 +189,11 @@ public sealed class MediaService : IDisposable
                 samples[sampleIndex++] = valueMixed;
                 if (sampleIndex != samples.Length) continue;
                 sampleIndex = 0;
-                var fft = new Complex[1024];
-                for (var i = 0; i < fft.Length; i++) fft[i].X = samples[i] * (float)FastFourierTransform.HammingWindow(i, fft.Length);
+                for (var i = 0; i < fft.Length; i++) { fft[i].X = samples[i] * Window[i]; fft[i].Y = 0; }
                 FastFourierTransform.FFT(true, 10, fft);
                 for (var i = 0; i < spectrum.Length; i++)
                 {
-                    var a = Math.Clamp((int)Math.Pow(500, i / 32.0), 1, 500);
-                    var b = Math.Clamp((int)Math.Pow(500, (i + 1) / 32.0), a + 1, 512);
+                    var (a, b) = Bands[i];
                     float energy = 0;
                     for (var k = a; k < b; k++) energy = Math.Max(energy, MathF.Sqrt(fft[k].X * fft[k].X + fft[k].Y * fft[k].Y));
                     spectrum[i] = Math.Clamp(energy * 24, 0, 1);

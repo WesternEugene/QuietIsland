@@ -16,6 +16,7 @@ public sealed class SearchView : IslandView
     private readonly TextBlock hint = Ui.Text("Введите имя файла или используйте синтаксис Everything", 11, "Muted");
     private readonly WrapPanel pins = new();
     private readonly WrapPanel group = new();
+    private readonly Button aiShortcut;
     private CancellationTokenSource? search;
     private IReadOnlyList<SearchResult>? catalog;
     private readonly Dictionary<ListBoxItem, Action> actions = new();
@@ -23,11 +24,11 @@ public sealed class SearchView : IslandView
     {
         var root = new Grid(); root.RowDefinitions.Add(new() { Height = GridLength.Auto }); root.RowDefinitions.Add(new() { Height = GridLength.Auto }); root.RowDefinitions.Add(new()); root.RowDefinitions.Add(new() { Height = GridLength.Auto });
         var title = Ui.Stack(query); title.Margin = new Thickness(0, 0, 0, 5); root.Children.Add(title);
-        var shortcuts = Ui.Row(Ui.Button("◷ Таймер", () => { query.Text = "таймер 10 мин"; query.Focus(); }), Ui.Button("✧ Спросить ИИ", () => { query.Text = "? "; query.CaretIndex = 2; query.Focus(); }), Ui.Button("+ Ярлык", AddPin)); Grid.SetRow(shortcuts, 1); root.Children.Add(shortcuts);
+        aiShortcut = Ui.Button("✧ Спросить ИИ", () => { if (C.Ai.IsConfigured) { query.Text = "? "; query.CaretIndex = 2; query.Focus(); } }); aiShortcut.IsEnabled = C.Ai.IsConfigured;
+        var shortcuts = Ui.Row(Ui.Button("◷ Таймер", () => { query.Text = "таймер 10 мин"; query.Focus(); }), aiShortcut, Ui.Button("+ Ярлык", AddPin)); Grid.SetRow(shortcuts, 1); root.Children.Add(shortcuts);
         Grid.SetRow(list, 2); root.Children.Add(list);
         var footer = Ui.Stack(group, pins, hint); Grid.SetRow(footer, 3); root.Children.Add(footer); Content = root;
         query.FontSize = 17; query.Height = 50; query.Padding = new Thickness(14, 8, 14, 8);
-        query.Loaded += (_, _) => { if (query.Template.FindName("Hint", query) is TextBlock placeholder) placeholder.RenderTransform = new System.Windows.Media.TranslateTransform(5, 0); };
         query.TextChanged += async (_, _) => await SearchAsync();
         query.PreviewKeyDown += (_, e) =>
         {
@@ -35,7 +36,15 @@ public sealed class SearchView : IslandView
             if (e.Key == Key.Enter) { Execute(); e.Handled = true; }
         };
         list.MouseDoubleClick += (_, _) => Execute(); list.PreviewKeyDown += (_, e) => { if (e.Key == Key.Enter) { Execute(); e.Handled = true; } };
+        C.State.Changed += ConfigurationChanged;
         BuildPins(); _ = SearchAsync();
+    }
+    private void ConfigurationChanged()
+    {
+        var configured = C.Ai.IsConfigured;
+        if (aiShortcut.IsEnabled == configured) return;
+        aiShortcut.IsEnabled = configured;
+        if (CommandParser.Parse(query.Text.Trim()).Kind == CommandKind.Ai) _ = SearchAsync();
     }
     public override void FocusInput() { query.Focus(); query.CaretIndex = query.Text.Length; }
     public override void Refresh() { if (!Disposed && !ReferenceEquals(catalog, C.Applications)) _ = SearchAsync(); }
@@ -102,7 +111,10 @@ public sealed class SearchView : IslandView
                     var reminder = ReminderParser.Parse(command.Text, DateTimeOffset.Now);
                     Add(reminder?.Title ?? "Не удалось разобрать время", reminder != null ? reminder.Due.ToString("dd.MM · HH:mm") + (reminder.Daily ? " · ежедневно" : "") : "Пример: напомни таблетки каждый день в 23:00", "◉", () => { if (reminder != null) { C.State.Data.Reminders.Add(reminder); C.State.Touch(); C.Notify("Напоминание сохранено"); C.Collapse(); } }); break;
                 case CommandKind.Shell: Add("> " + command.Text, "Enter — выполнить в отдельном окне cmd", ">_", () => { SystemService.RunShell(command.Text); C.Collapse(); }); break;
-                case CommandKind.Ai: Add(command.Text, "Enter — открыть вопрос в ИИ-чате", "✧", () => { C.AiDraft = command.Text; C.Go("ai"); }); break;
+                case CommandKind.Ai:
+                    if (C.Ai.IsConfigured) Add(command.Text, "Enter — открыть вопрос в ИИ-чате", "✧", () => { if (!C.Ai.IsConfigured) return; C.AiDraft = command.Text; C.Go("ai"); });
+                    else Add("ИИ отключён · добавьте API ключ", "Enter — открыть настройки ИИ", "✧", () => C.Go("settings:ai"));
+                    break;
                 case CommandKind.System: Add(command.Text, command.Text is "wifi" or "wi-fi" or "bluetooth" ? "Enter — переключить радиомодуль" : "Системная команда", "☷", () => { _ = C.RunSystemCommandAsync(command.Text); C.Collapse(); }); break;
                 case CommandKind.Web: Add("Искать в интернете: " + command.Text, "Открыть браузер", "↗", () => SystemService.Open("https://www.google.com/search?q=" + Uri.EscapeDataString(command.Text))); break;
                 default:
@@ -151,5 +163,5 @@ public sealed class SearchView : IslandView
     }
     private Button PinButton(LaunchItem pin) { var button = Ui.Button(pin.Name, () => { SystemService.Open(pin.Target); C.Collapse(); }); button.ContextMenu = PinMenu(pin); return button; }
     private ContextMenu PinMenu(LaunchItem pin) => LauncherActions.Menu(C, pin, BuildPins);
-    public override void Dispose() { search?.Cancel(); search?.Dispose(); base.Dispose(); }
+    public override void Dispose() { C.State.Changed -= ConfigurationChanged; search?.Cancel(); search?.Dispose(); base.Dispose(); }
 }

@@ -471,9 +471,9 @@ public partial class MainWindow : Window
             }
         }
         ToastBanner.Visibility = expanded && message.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
-        DictationButton.ToolTip = c.Speech.IsTranscribing ? "Распознаю…" : c.Speech.IsListening ? "Остановить диктовку" : "Диктовка · Ctrl+Alt+D";
+        DictationButton.ToolTip = c.Speech.IsTranscribing ? "Распознаю…" : c.Speech.IsListening ? "Остановить диктовку" : c.Speech.IsConfigured ? "Диктовка · Ctrl+Alt+D" : "Диктовка отключена · настройте API или включите локальный движок в настройках";
         DictationButton.Background = c.Speech.IsListening ? Ui.Brush("Hover") : Brushes.Transparent;
-        DictationButton.IsEnabled = !c.Speech.IsTranscribing;
+        DictationButton.IsEnabled = !c.Speech.IsTranscribing && (c.Speech.IsListening || c.Speech.IsConfigured);
         CompactNormal.Visibility = timerAlarm ? Visibility.Collapsed : Visibility.Visible;
         CompactAlarm.Visibility = timerAlarm ? Visibility.Visible : Visibility.Collapsed;
         if (timerAlarm)
@@ -508,7 +508,7 @@ public partial class MainWindow : Window
     {
         try
         {
-            var result = await SelectRegionAsync(mode == "color"); if (result == null) return;
+            var result = await SelectRegionAsync(mode == "color", mode == "shot"); if (result == null) return;
             if (mode == "ocr") { var text = await c.Capture.OcrAsync(result.Image); if (text.Length == 0) c.Notify("Текст не найден"); else { System.Windows.Clipboard.SetText(text); c.Notify("Распознанный текст скопирован"); } }
             else if (mode == "qr") { var text = CaptureService.DecodeQr(result.Image); if (text == null) c.Notify("QR-код не найден"); else { System.Windows.Clipboard.SetText(text); c.Notify("QR-код скопирован: " + text); } }
             else if (mode == "color")
@@ -516,11 +516,11 @@ public partial class MainWindow : Window
                 var pixel = new byte[4]; new System.Windows.Media.Imaging.FormatConvertedBitmap(result.Image, PixelFormats.Bgra32, null, 0).CopyPixels(new Int32Rect(0, 0, 1, 1), pixel, 4, 0);
                 var hex = $"#{pixel[2]:X2}{pixel[1]:X2}{pixel[0]:X2}"; System.Windows.Clipboard.SetText(hex); c.State.Data.Colors.Remove(hex); c.State.Data.Colors.Insert(0, hex); if (c.State.Data.Colors.Count > 20) c.State.Data.Colors.RemoveAt(20); c.State.Touch(); c.Notify(hex + " скопирован");
             }
-            else new Windows.AnnotationWindow(result.Image, c).Show();
+            else await SaveScreenshotAsync(result.Image);
         }
         catch (Exception e) { c.Error(e); }
     }
-    private async Task<CaptureResult?> SelectRegionAsync(bool color = false)
+    private async Task<CaptureResult?> SelectRegionAsync(bool color = false, bool annotate = false)
     {
         if (selectionBusy) throw new InvalidOperationException("Сначала завершите выбор области. Esc отменяет выделение.");
         selectionBusy = true;
@@ -528,7 +528,7 @@ public partial class MainWindow : Window
         {
             Collapse();
             if (snapshot && SelectionForChecks != null) return await SelectionForChecks(color);
-            await Task.Delay(270); return await c.Capture.SelectAsync(color);
+            await Task.Delay(270); return await c.Capture.SelectAsync(color, annotate);
         }
         finally { selectionBusy = false; }
     }
@@ -536,9 +536,14 @@ public partial class MainWindow : Window
     {
         if (selectionBusy) { c.Notify("Сначала завершите выбор области. Esc отменяет выделение."); return; }
         selectionBusy = true;
-        try { Collapse(); await Task.Delay(300); new Windows.AnnotationWindow(CaptureService.Screen(Screen.Bounds), c).Show(); }
+        try { Collapse(); await Task.Delay(300); await SaveScreenshotAsync(CaptureService.Screen(Screen.Bounds)); }
         catch (Exception e) { c.Error(e); }
         finally { selectionBusy = false; }
+    }
+    private async Task SaveScreenshotAsync(System.Windows.Media.Imaging.BitmapSource image)
+    {
+        var path = await c.Capture.SaveAndCopyAsync(image);
+        c.Notify("Снимок сохранён и скопирован: " + Path.GetFileName(path));
     }
     public async Task ToggleRecordingAsync(bool gif = false)
     {

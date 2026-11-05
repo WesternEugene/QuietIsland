@@ -9,6 +9,7 @@ public sealed class ToolsView : IslandView
 {
     private readonly TextBox text = Ui.Input("Текст для преобразования", multiline: true);
     private readonly StackPanel qrPanel = new();
+    private readonly List<Button> aiActions = [];
     public ToolsView(IslandContext c, MainWindow window) : base(c)
     {
         text.Height = 150;
@@ -16,7 +17,12 @@ public sealed class ToolsView : IslandView
         var transforms = new WrapPanel();
         foreach (var (key, label) in new[] { ("layout", "Раскладка"), ("upper", "АБВ"), ("lower", "абв"), ("title", "Заглавные"), ("translit", "Транслит"), ("trim", "Пробелы"), ("json", "JSON"), ("base64", "Base64 ↑"), ("base64-decode", "Base64 ↓"), ("url", "URL ↑"), ("url-decode", "URL ↓") }) transforms.Children.Add(Ui.Button(label, () => { try { text.Text = TextTransforms.Apply(key, text.Text); } catch { C.Notify("Этот текст не подходит для выбранного преобразования"); } }));
         var actions = Ui.Row(Ui.Button("Скопировать", () => { if (text.Text.Length > 0) { System.Windows.Clipboard.SetText(text.Text); C.Notify("Текст скопирован"); } }), Ui.Button("Вставить без форматирования", () => { if (text.Text.Length > 0) { System.Windows.Clipboard.SetText(text.Text); C.Collapse(); Native.Paste(C.PasteTarget); } }), Ui.Button("Сделать QR", MakeQr));
-        foreach (var (instruction, label) in new[] { ("Переведи текст на английский язык", "Перевести"), ("Исправь ошибки в тексте", "Исправить"), ("Сократи текст, сохранив смысл", "Сократить"), ("Объясни текст понятным языком", "Объяснить"), ("Подготовь вежливый ответ на этот текст", "Ответить") }) actions.Children.Add(Ui.Button("✧ " + label, () => { C.AiDraft = instruction + ":\n" + text.Text; C.Go("ai"); }));
+        foreach (var (instruction, label) in new[] { ("Переведи текст на английский язык", "Перевести"), ("Исправь ошибки в тексте", "Исправить"), ("Сократи текст, сохранив смысл", "Сократить"), ("Объясни текст понятным языком", "Объяснить"), ("Подготовь вежливый ответ на этот текст", "Ответить") })
+        {
+            var button = Ui.Button("✧ " + label, () => { if (!C.Ai.IsConfigured) return; C.AiDraft = instruction + ":\n" + text.Text; C.Go("ai"); });
+            aiActions.Add(button); actions.Children.Add(button);
+        }
+        C.State.Changed += UpdateAiActions; UpdateAiActions();
         var colors = Ui.Row(); foreach (var color in C.State.Data.Colors) { var b = Ui.Button(color, () => { System.Windows.Clipboard.SetText(color); C.Notify(color + " скопирован"); }); b.BorderBrush = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(color)); colors.Children.Add(b); }
         Content = Ui.Scroll(Ui.Stack(text, transforms, actions, qrPanel, capture, Ui.Text("НЕДАВНИЕ ЦВЕТА", 10, "Muted"), colors));
     }
@@ -29,5 +35,7 @@ public sealed class ToolsView : IslandView
         catch { C.Notify("Текст слишком длинный для QR-кода"); }
     }
     public override void FocusInput() => text.Focus();
+    private void UpdateAiActions() { var enabled = C.Ai.IsConfigured; foreach (var button in aiActions) button.IsEnabled = enabled; }
+    public override void Dispose() { C.State.Changed -= UpdateAiActions; base.Dispose(); }
 }
 

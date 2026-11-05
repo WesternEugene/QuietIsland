@@ -107,6 +107,32 @@ internal static class UiRegressionChecks
         var query = Descendants(compositionRoot).OfType<TextBox>().First(x => Equals(x.Tag, "Файлы, программы и прочее")); query.ApplyTemplate();
         var placeholder = (TextBlock)query.Template.FindName("Hint", query); var caret = query.GetRectFromCharacterIndex(0);
         var searchHintRightOfCaret = !caret.IsEmpty && placeholder.TranslatePoint(new Point(), query).X > caret.X && placeholder.TranslatePoint(new Point(), query).X - caret.X <= 8;
+        var inputPanel = new StackPanel();
+        var inputs = new[] { Controls.Ui.Input("Обычное поле"), Controls.Ui.Input("Поле с другим отступом"), Controls.Ui.Input("Крупный текст"), Controls.Ui.Input("Многострочное поле", multiline: true) };
+        inputs[1].Padding = new Thickness(20, 8, 16, 8); inputs[2].FontSize = 18; inputs[3].Height = 90;
+        foreach (var input in inputs) inputPanel.Children.Add(input);
+        using var inputSource = new HwndSource(new HwndSourceParameters("QuietIsland.InputHintsCheck") { ParentWindow = new IntPtr(-3), WindowStyle = 0, Width = 500, Height = 300 });
+        inputSource.RootVisual = inputPanel; Diagnostics.Render(inputPanel, 500, 300);
+        await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        var allInputHintsRightOfCaret = true; var inputHintsFollowText = true;
+        foreach (var input in inputs)
+        {
+            var hint = (TextBlock)input.Template.FindName("Hint", input); var insertion = input.GetRectFromCharacterIndex(0);
+            var gap = hint.TranslatePoint(new Point(), input).X - insertion.Right;
+            allInputHintsRightOfCaret &= !insertion.IsEmpty && gap >= 2 && gap <= 8;
+            input.Text = "Текст"; input.UpdateLayout(); inputHintsFollowText &= hint.Visibility == Visibility.Collapsed;
+            input.Clear(); input.UpdateLayout(); inputHintsFollowText &= hint.Visibility == Visibility.Visible;
+        }
+        CaptureService.SavePng(Diagnostics.Render(inputPanel, 500, 300), Path.Combine(c.State.DirectoryPath, "input-placeholders.png"));
+        using var generalSettings = new Views.SettingsView(c, composition);
+        inputSource.RootVisual = generalSettings;
+        generalSettings.SelectCategory("Общие"); Diagnostics.Render(generalSettings, 600, 500);
+        var startupCheckboxes = Descendants(generalSettings).OfType<CheckBox>().Where(x => Equals(x.Content, "Запускать Quiet Island при входе в Windows")).ToArray();
+        var startupInGeneralSettings = startupCheckboxes.Length == 1 && startupCheckboxes[0].IsVisible && startupCheckboxes[0].IsChecked == SystemService.AutoStartEnabled();
+        CaptureService.SavePng(Diagnostics.Render(generalSettings, 600, 500), Path.Combine(c.State.DirectoryPath, "general-startup.png"));
+        startupCheckboxes.Single().IsChecked = !SystemService.AutoStartEnabled();
+        generalSettings.SelectCategory("Буфер и клавиши"); generalSettings.SelectCategory("Общие");
+        var startupRefreshesFromWindows = startupCheckboxes.Single().IsChecked == SystemService.AutoStartEnabled();
         var editorMenusHaveOwnIcons = query.ContextMenu != null && query.ContextMenu.Items.OfType<MenuItem>().All(x => x.Icon is FrameworkElement) && Descendants(notes).OfType<RichTextBox>().All(x => x.ContextMenu?.Items.OfType<MenuItem>().All(item => item.Icon is FrameworkElement) == true);
         c.State.Data.Shelf.Remove(ownFile); File.Delete(ownFile); composition.Collapse();
         using var narrowContext = new IslandContext(Path.Combine(c.State.DirectoryPath, "appearance-bounds"));
@@ -127,7 +153,7 @@ internal static class UiRegressionChecks
             if (contentPixels[offset + 3] > 40 && Math.Max(contentPixels[offset], Math.Max(contentPixels[offset + 1], contentPixels[offset + 2])) > 70 && !fluid.ContainsSurface(new(x + .5, y + .5))) outsideContent++;
         }
         var appearanceExtremesKeepContentInside = outsideContent == 0;
-        return new { aiDropPreserved, launcherDropPreserved, collapsedOpensShelf, hiddenTimerFires, hiddenReminderFires, pillHitArea, transparentAreaPassesThrough, outsideClickClosesFocusedPanel, horizontalScrollMoves, verticalScrollMoves, highResolutionWheelAccumulates, horizontalTrackPagesHorizontally, expansionAnimates, transitionReversalSettles, weatherPollPreservesHorizontalPosition, recordingSelectionCannotReenter, compactGrowsToFitText, cachedAudioChoicesRefresh, clockRemainsWithTimerAndMusic, timerAppearsRightOfClock, compactHeightStableWithMusic, notesHaveCircularTimer, fileMenusHaveIcons, fileMenuKeepsIslandOpen, fasterHoverDismissal, keyboardSearchKeepsIslandOpen, searchHintRightOfCaret, editorMenusHaveOwnIcons, appearanceExtremesKeepContentInside };
+        return new { aiDropPreserved, launcherDropPreserved, collapsedOpensShelf, hiddenTimerFires, hiddenReminderFires, pillHitArea, transparentAreaPassesThrough, outsideClickClosesFocusedPanel, horizontalScrollMoves, verticalScrollMoves, highResolutionWheelAccumulates, horizontalTrackPagesHorizontally, expansionAnimates, transitionReversalSettles, weatherPollPreservesHorizontalPosition, recordingSelectionCannotReenter, compactGrowsToFitText, cachedAudioChoicesRefresh, clockRemainsWithTimerAndMusic, timerAppearsRightOfClock, compactHeightStableWithMusic, notesHaveCircularTimer, fileMenusHaveIcons, fileMenuKeepsIslandOpen, fasterHoverDismissal, keyboardSearchKeepsIslandOpen, searchHintRightOfCaret, allInputHintsRightOfCaret, inputHintsFollowText, startupInGeneralSettings, startupRefreshesFromWindows, editorMenusHaveOwnIcons, appearanceExtremesKeepContentInside };
     }
 }
 

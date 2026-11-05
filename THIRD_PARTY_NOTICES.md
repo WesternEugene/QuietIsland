@@ -7,7 +7,7 @@ Quiet Island uses the following independent components. Commercial Island source
 - ZXing.Net 0.16.11 — Apache-2.0. https://github.com/micjahn/ZXing.Net
 - PdfPig 0.1.11 — Apache-2.0. https://github.com/UglyToad/PdfPig
 - .NET, WPF, System.Speech, CsWinRT and Microsoft .NET libraries — their respective Microsoft/.NET Foundation licenses. https://github.com/dotnet/runtime and https://github.com/dotnet/wpf
-- FFmpeg is an external dependency and is not redistributed in this release. The license depends on the user's FFmpeg build. https://ffmpeg.org/legal.html
+- FFmpeg — the bundled encoder, when included, is in `tools/ffmpeg`; its accompanying license is in the same directory. An external FFmpeg installation can also be selected in settings. The license depends on the chosen build. https://ffmpeg.org/legal.html
 
 ## Everything SDK license
 

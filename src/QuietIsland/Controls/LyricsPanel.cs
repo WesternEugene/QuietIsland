@@ -16,6 +16,7 @@ public sealed class LyricsPanel : Grid, IDisposable
     private readonly StackPanel message = new() { VerticalAlignment = VerticalAlignment.Center };
     private readonly TextBlock status = Ui.Text("", 14, "Muted");
     private readonly Button retry;
+    private readonly bool compact;
     private readonly List<TextBlock> rows = [];
     private LyricsDocument? shown;
     private bool disposed;
@@ -23,16 +24,17 @@ public sealed class LyricsPanel : Grid, IDisposable
     public event Action? RetryRequested;
     private static readonly DependencyProperty ScrollOffsetProperty = DependencyProperty.Register("ScrollOffset", typeof(double), typeof(LyricsPanel), new PropertyMetadata(0d, (target, args) => ((LyricsPanel)target).scroll.ScrollToVerticalOffset((double)args.NewValue)));
 
-    public LyricsPanel()
+    public LyricsPanel(bool compact = false)
     {
+        this.compact = compact;
         AutomationProperties.SetName(this, "Текст песни");
         RowDefinitions.Add(new() { Height = GridLength.Auto }); RowDefinitions.Add(new());
-        caption.Margin = new Thickness(0, 6, 0, 0); Children.Add(caption);
-        scroll = new ScrollViewer { Content = lines, CanContentScroll = false, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Padding = new Thickness(0, 14, 8, 24) };
+        caption.Margin = new Thickness(0, 6, 0, 0); caption.Visibility = compact ? Visibility.Collapsed : Visibility.Visible; Children.Add(caption);
+        scroll = new ScrollViewer { Content = lines, CanContentScroll = false, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Padding = compact ? new Thickness(0, 4, 6, 12) : new Thickness(0, 14, 8, 24) };
         scroll.OpacityMask = new LinearGradientBrush(new GradientStopCollection { new(Colors.Transparent, 0), new(Colors.White, .08), new(Colors.White, .86), new(Colors.Transparent, 1) }, new Point(0, 0), new Point(0, 1));
         Grid.SetRow(scroll, 1); Children.Add(scroll);
-        status.LineHeight = 22; message.Children.Add(status);
-        retry = Ui.Button("Повторить", () => RetryRequested?.Invoke()); retry.HorizontalAlignment = HorizontalAlignment.Left; retry.Margin = new Thickness(0, 12, 0, 0); message.Children.Add(retry);
+        status.FontSize = compact ? 12 : 14; status.LineHeight = compact ? 18 : 22; status.TextWrapping = compact ? TextWrapping.Wrap : TextWrapping.NoWrap; message.Children.Add(status);
+        retry = Ui.Button("Повторить", () => RetryRequested?.Invoke()); retry.HorizontalAlignment = HorizontalAlignment.Left; retry.Margin = new Thickness(0, compact ? 6 : 12, 0, 0); if (compact) retry.Padding = new Thickness(8, 4, 8, 4); message.Children.Add(retry);
         Grid.SetRow(message, 1); Children.Add(message);
         ClipToBounds = true;
         scroll.SizeChanged += (_, _) => QueueCenter(false);
@@ -50,7 +52,7 @@ public sealed class LyricsPanel : Grid, IDisposable
         {
             var active = i == index; var distance = index < 0 ? i + 1 : Math.Abs(i - index);
             var opacity = active ? 1d : distance == 1 ? .7 : distance == 2 ? .4 : .22;
-            var row = rows[i]; row.FontSize = active ? 22 : 16; row.FontWeight = active ? FontWeights.SemiBold : FontWeights.Normal;
+            var row = rows[i]; row.FontSize = compact ? (active ? 16 : 12) : (active ? 22 : 16); row.FontWeight = active ? FontWeights.SemiBold : FontWeights.Normal;
             row.SetResourceReference(TextBlock.ForegroundProperty, active ? "Text" : "Muted");
             if (first) { row.BeginAnimation(OpacityProperty, null); row.Opacity = opacity; }
             else if (Math.Abs(row.Opacity - opacity) > .01) row.BeginAnimation(OpacityProperty, new DoubleAnimation(row.Opacity, opacity, TimeSpan.FromMilliseconds(220)) { EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut } });
@@ -64,15 +66,22 @@ public sealed class LyricsPanel : Grid, IDisposable
         rows.Clear(); lines.Children.Clear(); BeginAnimation(ScrollOffsetProperty, null); SetValue(ScrollOffsetProperty, 0d);
         var hasText = document.Status is LyricsStatus.Synced or LyricsStatus.Plain;
         scroll.Visibility = hasText ? Visibility.Visible : Visibility.Collapsed; message.Visibility = hasText ? Visibility.Collapsed : Visibility.Visible;
-        caption.Text = document.Status == LyricsStatus.Synced ? "СИНХРОННЫЙ ТЕКСТ · LRCLIB" : document.Status == LyricsStatus.Plain ? "ТЕКСТ БЕЗ СИНХРОНИЗАЦИИ · LRCLIB" : "ТЕКСТ ПЕСНИ";
+        caption.Text = compact ? "" : document.Status == LyricsStatus.Synced ? "СИНХРОННЫЙ ТЕКСТ · LRCLIB" : document.Status == LyricsStatus.Plain ? "ТЕКСТ БЕЗ СИНХРОНИЗАЦИИ · LRCLIB" : "ТЕКСТ ПЕСНИ";
         retry.Visibility = document.Status is LyricsStatus.NotFound or LyricsStatus.Unavailable ? Visibility.Visible : Visibility.Collapsed;
-        status.Text = document.Status switch { LyricsStatus.Loading => "Ищу текст песни…", LyricsStatus.NotFound => "Для этого трека текст пока не найден.", LyricsStatus.Unavailable => "Не удалось загрузить текст.\nПроверьте подключение и попробуйте снова.", LyricsStatus.Instrumental => "Инструментальная композиция", _ => "Выберите трек в плеере" };
+        status.Text = document.Status switch
+        {
+            LyricsStatus.Loading => "Ищу текст песни…",
+            LyricsStatus.NotFound => compact ? "Текст не найден." : "Для этого трека текст пока не найден.",
+            LyricsStatus.Unavailable => compact ? "Текст недоступен." : "Не удалось загрузить текст.\nПроверьте подключение и попробуйте снова.",
+            LyricsStatus.Instrumental => "Инструментальная композиция",
+            _ => "Выберите трек в плеере"
+        };
         if (document.Status == LyricsStatus.Synced)
             foreach (var line in document.Lines)
             {
-                var row = Ui.Text(line.Text.Length > 0 ? line.Text : "♪", 16, "Muted"); row.Margin = new Thickness(0, 0, 0, 10); row.MinHeight = 26; lines.Children.Add(row); rows.Add(row);
+                var row = Ui.Text(line.Text.Length > 0 ? line.Text : "♪", compact ? 12 : 16, "Muted"); row.Margin = new Thickness(0, 0, 0, compact ? 6 : 10); row.MinHeight = compact ? 20 : 26; row.TextWrapping = compact ? TextWrapping.Wrap : TextWrapping.NoWrap; lines.Children.Add(row); rows.Add(row);
             }
-        else if (document.Status == LyricsStatus.Plain) { var text = Ui.Text(document.PlainText, 17); text.LineHeight = 27; lines.Children.Add(text); }
+        else if (document.Status == LyricsStatus.Plain) { var text = Ui.Text(document.PlainText, compact ? 13 : 17); text.LineHeight = compact ? 20 : 27; text.TextWrapping = compact ? TextWrapping.Wrap : TextWrapping.NoWrap; lines.Children.Add(text); }
     }
 
     private void QueueCenter(bool animate)

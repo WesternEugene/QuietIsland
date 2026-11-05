@@ -34,6 +34,18 @@ public sealed class UpdateTests
     [InlineData("invalid")]
     public void SameOlderOrUnstableVersionsAreIgnored(string tag) => Assert.Null(AppRelease.Parse(ReleaseJson(tag), Current));
 
+    [Fact]
+    public void AlphaCanUpgradeToStableWithTheSameNumericVersion()
+    {
+        var release = AppRelease.Parse(ReleaseJson("1.2.0"), new Version(1, 2, 0, 0), currentIsPrerelease: true);
+        Assert.NotNull(release);
+        Assert.True(release.CanInstall);
+        Assert.Equal("1.2.0", release.DisplayVersion);
+        Assert.Null(AppRelease.Parse(ReleaseJson("1.2.0"), new Version(1, 2, 0, 0)));
+        Assert.Null(AppRelease.Parse(ReleaseJson("1.1.3"), new Version(1, 2, 0, 0), currentIsPrerelease: true));
+        Assert.Null(AppRelease.Parse(ReleaseJson("1.2.0", prerelease: true), new Version(1, 2, 0, 0), currentIsPrerelease: true));
+    }
+
     [Theory]
     [InlineData(true, false)]
     [InlineData(false, true)]

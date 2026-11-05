@@ -7,15 +7,13 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using QuietIsland.Controls;
-using QuietIsland.Services;
 using VectorPath = System.Windows.Shapes.Path;
 
 namespace QuietIsland.Windows;
 
-public sealed class AnnotationWindow : Window
+internal sealed class AnnotationEditor : ContentControl
 {
     private readonly BitmapSource source;
-    private readonly IslandContext c;
     private readonly Grid drawing;
     private readonly Canvas shapes = new() { IsHitTestVisible = false };
     private readonly InkCanvas ink = new();
@@ -28,22 +26,23 @@ public sealed class AnnotationWindow : Window
     private readonly TextBlock hint = new() { FontSize = 12, Margin = new Thickness(0, 2, 0, 10), TextWrapping = TextWrapping.Wrap };
     private Color color = Colors.OrangeRed;
     private double thickness = 4;
-    private string mode = "pen";
+    private string mode = "select";
     private Point? start;
     private Shape? temporary;
 
-    public AnnotationWindow(BitmapSource image, IslandContext context)
+    internal UIElement Toolbar { get; }
+    internal bool HasActiveGesture => temporary != null || ink.IsMouseCaptureWithin || ink.IsStylusCaptureWithin;
+    internal bool IsOptionsOpen => widths.IsDropDownOpen;
+    internal bool IsSelecting => mode == "select";
+    internal event Action? ToolChanged;
+    internal event Action? CancelRequested;
+
+    internal AnnotationEditor(BitmapSource image)
     {
         source = image;
-        c = context;
-        Title = "Quiet Island · Разметка снимка";
-        Width = Math.Min(SystemParameters.WorkArea.Width - 80, 1100);
-        Height = Math.Min(SystemParameters.WorkArea.Height - 80, 780);
-        MinWidth = Math.Min(620, Width);
-        MinHeight = Math.Min(420, Height);
-        WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        Background = Ui.Brush("Surface");
-        Topmost = true;
+        Width = image.PixelWidth;
+        Height = image.PixelHeight;
+        ClipToBounds = true;
 
         drawing = new Grid { Width = image.PixelWidth, Height = image.PixelHeight, ClipToBounds = true, Background = Brushes.Transparent, Focusable = true };
         drawing.Children.Add(new Image { Source = image, Stretch = Stretch.Fill, IsHitTestVisible = false });
@@ -53,23 +52,8 @@ public sealed class AnnotationWindow : Window
         ink.DefaultDrawingAttributes = new DrawingAttributes { Color = color, Width = thickness, Height = thickness, FitToCurve = true };
         ink.StrokeCollected += (_, e) => Remember(() => ink.Strokes.Remove(e.Stroke));
 
-        var root = new DockPanel { Margin = new Thickness(14) };
-        var toolbar = BuildToolbar();
-        DockPanel.SetDock(toolbar, Dock.Top);
-        root.Children.Add(toolbar);
-        var footer = Ui.Text($"{image.PixelWidth} × {image.PixelHeight} px    ·    Ctrl+Z — отменить    ·    Esc — отменить текущую фигуру", 11, "Muted");
-        footer.Margin = new Thickness(0, 10, 0, 0);
-        DockPanel.SetDock(footer, Dock.Bottom);
-        root.Children.Add(footer);
-        root.Children.Add(new Border
-        {
-            Background = Ui.Brush("Card"),
-            BorderBrush = Ui.Brush("Line"),
-            BorderThickness = new Thickness(1),
-            Padding = new Thickness(6),
-            Child = new Viewbox { Stretch = Stretch.Uniform, StretchDirection = StretchDirection.DownOnly, Child = drawing }
-        });
-        Content = root;
+        Toolbar = BuildToolbar();
+        Content = drawing;
 
         CommandBindings.Add(new CommandBinding(ApplicationCommands.Undo, (_, e) => { Undo(); e.Handled = true; }, (_, e) => { e.CanExecute = undo.Count > 0 || temporary != null; e.Handled = true; }));
         InputBindings.Add(new KeyBinding(ApplicationCommands.Undo, new KeyGesture(Key.Z, ModifierKeys.Control)));
@@ -91,15 +75,18 @@ public sealed class AnnotationWindow : Window
         drawing.PreviewMouseMove += Move;
         drawing.PreviewMouseLeftButtonUp += Up;
         drawing.LostMouseCapture += (_, _) => { if (temporary != null && !drawing.IsMouseCaptured) CancelGesture(); };
-        Deactivated += (_, _) => CancelGesture();
-        Closed += (_, _) => CancelGesture();
-        SetTool("pen");
+        Unloaded += (_, _) => CancelGesture();
+        SetTool("select");
     }
 
     private UIElement BuildToolbar()
     {
         var row = Ui.Row();
         row.Margin = new Thickness(0, 0, 0, 2);
+        var capture = Ui.Button("Снимок", () => SetTool("select"), tip: "Режим захвата: клик по окну или выделение области (Пробел)");
+        AutomationProperties.SetName(capture, "Режим: Снимок");
+        tools.Add("select", capture);
+        row.Children.Add(capture);
         foreach (var (key, label) in new[] { ("pen", "Перо"), ("arrow", "Стрелка"), ("box", "Рамка"), ("text", "Текст"), ("blur", "Скрыть область") })
         {
             var button = Ui.Button(label, () => SetTool(key));
@@ -112,23 +99,7 @@ public sealed class AnnotationWindow : Window
         undoButton.Click += (_, _) => Undo();
         AutomationProperties.SetName(undoButton, "Отменить последнее действие (Ctrl+Z)");
         row.Children.Add(undoButton);
-        var copy = Ui.Button("Копировать", () =>
-        {
-            System.Windows.Clipboard.SetImage(Export());
-            c.Notify("Снимок скопирован");
-            Close();
-        }, true, "Копировать размеченный снимок в буфер обмена");
-        copy.Content = ActionLabel("copy", "Копировать", "AccentText");
-        row.Children.Add(copy);
-        row.Children.Add(Ui.Button("Сохранить", () =>
-        {
-            var image = Export();
-            var path = c.Capture.NewPath(".png");
-            CaptureService.SavePng(image, path);
-            System.Windows.Clipboard.SetImage(image);
-            c.Notify("Снимок сохранён: " + System.IO.Path.GetFileName(path));
-            Close();
-        }, tip: "Сохранить PNG и скопировать снимок в буфер обмена"));
+        row.Children.Add(Ui.Button("Отмена", () => CancelRequested?.Invoke(), tip: "Отменить снимок (Esc)"));
 
         var options = Ui.Row();
         options.Margin = new Thickness(0, 0, 0, 6);
@@ -173,23 +144,27 @@ public sealed class AnnotationWindow : Window
         return row;
     }
 
-    private void SetTool(string tool)
+    internal void SetTool(string tool)
     {
         CancelGesture();
         mode = tool;
+        IsHitTestVisible = tool != "select";
         ink.EditingMode = tool == "pen" ? InkCanvasEditingMode.Ink : InkCanvasEditingMode.None;
         ink.IsHitTestVisible = tool == "pen";
         drawing.Cursor = tool == "text" ? Cursors.IBeam : Cursors.Cross;
         foreach (var (key, button) in tools)
         {
             var selected = key == tool;
-            button.Background = selected ? Icons.Soft("shot") : Ui.Brush("Card");
+            button.Background = selected ? key == "select" ? Ui.Brush("Accent") : Icons.Soft("shot") : Ui.Brush("Card");
+            button.Foreground = selected && key == "select" ? Ui.Brush("AccentText") : Ui.Brush("Text");
             button.BorderBrush = selected ? Ui.Brush("Accent") : Brushes.Transparent;
             button.FontWeight = selected ? FontWeights.SemiBold : FontWeights.Normal;
             AutomationProperties.SetItemStatus(button, selected ? "Выбрано" : "");
+            if (key == "select") button.Content = ActionLabel("shot", "Снимок", selected ? "AccentText" : "Text");
         }
         hint.Text = tool switch
         {
+            "select" => "Клик по окну — снимок окна. Выделите область и отпустите кнопку — снимок области. Для дорисовок сначала выберите инструмент.",
             "arrow" => "Стрелка: зажмите кнопку мыши и ведите от начала к острию.",
             "box" => "Рамка: зажмите кнопку мыши и выделите нужную область.",
             "text" => "Текст: щёлкните по снимку, затем введите подпись.",
@@ -197,6 +172,7 @@ public sealed class AnnotationWindow : Window
             _ => "Перо: рисуйте по снимку с зажатой кнопкой мыши. Цвет и толщину можно выбрать в панели инструментов."
         };
         UpdateOptions();
+        ToolChanged?.Invoke();
     }
 
     private void UpdateOptions()
@@ -217,7 +193,7 @@ public sealed class AnnotationWindow : Window
 
     private void Down(object sender, MouseButtonEventArgs e)
     {
-        if (mode == "pen") return;
+        if (mode is "pen" or "select") return;
         e.Handled = true;
         drawing.Focus();
         var point = AnnotationGeometry.Clamp(e.GetPosition(drawing), drawing.RenderSize);
@@ -324,13 +300,13 @@ public sealed class AnnotationWindow : Window
 
     private void Remember(Action action) { undo.Push(action); UpdateUndo(); }
 
-    private void Undo()
+    internal void Undo()
     {
         if (temporary != null) CancelGesture();
         else if (undo.TryPop(out var action)) { action(); UpdateUndo(); }
     }
 
-    private void CancelGesture()
+    internal bool CancelGesture()
     {
         var element = temporary;
         temporary = null;
@@ -338,6 +314,7 @@ public sealed class AnnotationWindow : Window
         if (element != null) shapes.Children.Remove(element);
         if (drawing.IsMouseCaptured) drawing.ReleaseMouseCapture();
         UpdateUndo();
+        return element != null;
     }
 
     private void UpdateUndo()
@@ -346,11 +323,24 @@ public sealed class AnnotationWindow : Window
         CommandManager.InvalidateRequerySuggested();
     }
 
-    private BitmapSource Export()
+    internal BitmapSource Export() => ExportRegion(new Int32Rect(0, 0, source.PixelWidth, source.PixelHeight));
+
+    internal BitmapSource ExportRegion(Int32Rect region)
     {
+        drawing.Measure(new Size(source.PixelWidth, source.PixelHeight));
+        drawing.Arrange(new Rect(0, 0, source.PixelWidth, source.PixelHeight));
         drawing.UpdateLayout();
-        var bitmap = new RenderTargetBitmap(source.PixelWidth, source.PixelHeight, 96, 96, PixelFormats.Pbgra32);
-        bitmap.Render(drawing);
+        var visual = new DrawingVisual();
+        var output = new Rect(0, 0, region.Width, region.Height);
+        var brush = new VisualBrush(drawing)
+        {
+            Stretch = Stretch.Fill, ViewboxUnits = BrushMappingMode.Absolute,
+            Viewbox = new Rect(region.X, region.Y, region.Width, region.Height)
+        };
+        using (var dc = visual.RenderOpen())
+            dc.DrawRectangle(brush, null, output);
+        var bitmap = new RenderTargetBitmap(region.Width, region.Height, 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(visual);
         bitmap.Freeze();
         return bitmap;
     }

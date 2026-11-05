@@ -1,5 +1,7 @@
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.IO.Compression;
@@ -9,28 +11,37 @@ using UglyToad.PdfPig;
 
 namespace QuietIsland.Services;
 
-public sealed class AiService(DesktopState state)
+public sealed class AiService(DesktopState state) : IDisposable
 {
-    private readonly HttpClient client = new(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = Timeout.InfiniteTimeSpan };
+    private readonly Lazy<HttpClient> client = new(() => new(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = Timeout.InfiniteTimeSpan });
+    private bool disposed;
+    public bool IsConfigured => !string.IsNullOrWhiteSpace(DesktopState.Unprotect(state.Data.Settings.AiKeyEncrypted));
+    public void RequireConfigured()
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        if (!IsConfigured) throw new InvalidOperationException("ИИ отключён. Добавьте API ключ в разделе «Настройки → Искусственный интеллект».");
+    }
     public async Task<string[]> ModelsAsync(CancellationToken token = default)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token); deadline.CancelAfter(TimeSpan.FromSeconds(15));
         using var request = Request(HttpMethod.Get, "models");
-        using var response = await client.SendAsync(request, deadline.Token); response.EnsureSuccessStatusCode();
+        using var response = await client.Value.SendAsync(request, deadline.Token); response.EnsureSuccessStatusCode();
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(deadline.Token));
         return doc.RootElement.GetProperty("data").EnumerateArray().Select(x => x.GetProperty("id").GetString()!).ToArray();
     }
     private HttpRequestMessage Request(HttpMethod method, string route)
     {
+        RequireConfigured();
         var endpoint = state.Data.Settings.AiEndpoint.TrimEnd('/');
         if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) || uri.Scheme is not ("https" or "http") || uri.UserInfo.Length > 0 || uri.Query.Length > 0 || uri.Fragment.Length > 0) throw new InvalidOperationException("Укажите корректный API URL в настройках ИИ.");
         var request = new HttpRequestMessage(method, endpoint + "/" + route);
         var key = DesktopState.Unprotect(state.Data.Settings.AiKeyEncrypted);
-        if (key.Length > 0) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key.Trim());
         return request;
     }
     public async Task<string> CompleteAsync(IReadOnlyList<ChatMessage> history, IProgress<string>? progress = null, CancellationToken token = default)
     {
+        RequireConfigured();
         if (string.IsNullOrWhiteSpace(state.Data.Settings.AiModel)) throw new InvalidOperationException("Выберите модель в настройках ИИ. Можно подключить локальный Ollama или совместимый API.");
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token); deadline.CancelAfter(TimeSpan.FromMinutes(3));
         var messages = new List<object> { new { role = "system", content = state.Data.Settings.AiSystemPrompt } };
@@ -47,8 +58,8 @@ public sealed class AiService(DesktopState state)
             messages.Add(new { role = message.Role, content = (object)content });
         }
         using var request = Request(HttpMethod.Post, "chat/completions");
-        request.Content = new StringContent(JsonSerializer.Serialize(new { model = state.Data.Settings.AiModel, messages, stream = true }), Encoding.UTF8, "application/json");
-        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
+        request.Content = JsonContent.Create(new { model = state.Data.Settings.AiModel, messages, stream = true });
+        using var response = await client.Value.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
         if (!response.IsSuccessStatusCode) throw new InvalidOperationException($"Сервис ИИ ответил HTTP {(int)response.StatusCode}. Проверьте URL, модель, ключ и баланс сервиса.");
         if (response.Content.Headers.ContentType?.MediaType == "application/json")
         {
@@ -57,6 +68,7 @@ public sealed class AiService(DesktopState state)
             progress?.Report(content); return content;
         }
         var answer = new StringBuilder();
+        var reporting = Stopwatch.StartNew(); var reported = false;
         using var reader = new StreamReader(await response.Content.ReadAsStreamAsync(deadline.Token));
         while (await reader.ReadLineAsync(deadline.Token) is { } line)
         {
@@ -65,10 +77,15 @@ public sealed class AiService(DesktopState state)
             using var chunk = JsonDocument.Parse(data);
             if (!chunk.RootElement.TryGetProperty("choices", out var choices) || choices.GetArrayLength() == 0) continue;
             var delta = choices[0].GetProperty("delta");
-            if (delta.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.String) { answer.Append(content.GetString()); progress?.Report(answer.ToString()); }
+            if (delta.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.String)
+            {
+                answer.Append(content.GetString());
+                if (progress != null && (!reported || reporting.ElapsedMilliseconds >= 50))
+                { progress.Report(answer.ToString()); reported = true; reporting.Restart(); }
+            }
         }
         if (answer.Length == 0) throw new InvalidOperationException("Модель вернула пустой ответ.");
-        return answer.ToString();
+        var resultText = answer.ToString(); progress?.Report(resultText); return resultText;
     }
     public static string ExtractAttachment(string path)
     {
@@ -92,4 +109,5 @@ public sealed class AiService(DesktopState state)
         return Limit(File.ReadAllText(path));
     }
     private static string Limit(string text) => text.Length <= 200_000 ? text : text[..200_000] + "\n[Вложение обрезано до 200 000 символов]";
+    public void Dispose() { if (disposed) return; disposed = true; if (client.IsValueCreated) client.Value.Dispose(); }
 }

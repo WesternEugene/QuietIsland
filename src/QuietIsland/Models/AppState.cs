@@ -64,7 +64,7 @@ public class AppSettings
     public string SpeechEndpoint { get; set; } = "";
     public string SpeechModel { get; set; } = "whisper-1";
     public string SpeechKeyEncrypted { get; set; } = "";
-    public bool SpeechPreferLocal { get; set; } = true;
+    public bool SpeechPreferLocal { get; set; }
     public string WeatherCity { get; set; } = "";
     public double? Latitude { get; set; }
     public double? Longitude { get; set; }

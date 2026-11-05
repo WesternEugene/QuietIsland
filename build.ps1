@@ -21,16 +21,31 @@ if (-not $SkipTests) {
     if ($LASTEXITCODE -ne 0) { throw 'Проверки поиска и погоды не прошли.' }
     if (Get-Command node -ErrorAction SilentlyContinue) { node --test 'integrations\protocol.test.mjs'; if ($LASTEXITCODE -ne 0) { throw 'Тесты интеграций не прошли.' } }
 }
-& $islandDotnet publish 'src\QuietIsland\QuietIsland.csproj' -c Release -r win-x64 --self-contained $SelfContained.ToString().ToLowerInvariant() -o 'artifacts\QuietIsland' --nologo -v minimal
+# Publish only into this generated directory. Reusing it leaves removed dependencies
+# (or an entire previous self-contained runtime) in the next distribution.
+$islandArtifactsRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot 'artifacts'))
+$islandPublishDirectory = [IO.Path]::GetFullPath((Join-Path $islandArtifactsRoot 'QuietIsland'))
+if ($islandPublishDirectory -ne (Join-Path $islandArtifactsRoot 'QuietIsland') -or
+    -not $islandPublishDirectory.StartsWith($islandArtifactsRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Некорректный путь каталога сборки.' }
+foreach ($islandGeneratedPath in @($islandArtifactsRoot, $islandPublishDirectory)) {
+    if ((Test-Path -LiteralPath $islandGeneratedPath) -and ((Get-Item -LiteralPath $islandGeneratedPath -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Каталог сборки не должен быть ссылкой или точкой соединения.' }
+}
+if (Test-Path -LiteralPath $islandPublishDirectory) { Remove-Item -LiteralPath $islandPublishDirectory -Recurse -Force }
+& $islandDotnet publish 'src\QuietIsland\QuietIsland.csproj' -c Release -r win-x64 --self-contained $SelfContained.ToString().ToLowerInvariant() -o $islandPublishDirectory --nologo -v minimal
 if ($LASTEXITCODE -ne 0) { throw 'Сборка не прошла.' }
 Copy-Item -LiteralPath 'README.md','CHANGELOG.md','THIRD_PARTY_NOTICES.md' -Destination 'artifacts\QuietIsland'
 Copy-Item -LiteralPath 'integrations' -Destination 'artifacts\QuietIsland' -Recurse -Force
-Copy-Item -LiteralPath 'docs','packaging' -Destination 'artifacts\QuietIsland' -Recurse -Force
+Copy-Item -LiteralPath 'docs' -Destination 'artifacts\QuietIsland' -Recurse -Force
+# Packaging dependencies are build inputs, not application content.
+$islandManifestTarget = Join-Path $islandPublishDirectory 'packaging'
+New-Item -ItemType Directory -Force -Path $islandManifestTarget | Out-Null
+Copy-Item -LiteralPath 'packaging\AppxManifest.xml','packaging\Assets' -Destination $islandManifestTarget -Recurse -Force
 $islandBundledEncoder = Join-Path $PSScriptRoot 'packaging\dependencies\ffmpeg'
 if (Test-Path -LiteralPath (Join-Path $islandBundledEncoder 'ffmpeg.exe')) {
     $islandEncoderTarget = Join-Path $PSScriptRoot 'artifacts\QuietIsland\tools\ffmpeg'
     New-Item -ItemType Directory -Force -Path $islandEncoderTarget | Out-Null
-    Get-ChildItem -LiteralPath $islandBundledEncoder | Copy-Item -Destination $islandEncoderTarget -Recurse -Force
+    Copy-Item -LiteralPath (Join-Path $islandBundledEncoder 'ffmpeg.exe') -Destination $islandEncoderTarget
+    Get-ChildItem -LiteralPath $islandBundledEncoder -File | Where-Object { $_.Name -like 'LICENSE*' -or $_.Name -like 'COPYING*' } | Copy-Item -Destination $islandEncoderTarget
 }
 if ($Diagnose) {
     $islandReport = Join-Path $PSScriptRoot 'artifacts\diagnostics.json'
@@ -52,4 +67,5 @@ if ($Diagnose) {
     if ($islandFailedMusic.Count -gt 0) { throw ('Проверки музыки не прошли: ' + ($islandFailedMusic -join ', ')) }
     if (-not ($report.everything.found -and $report.ocr.passed -and $report.qr.passed -and $report.bridge.started -and $report.bridge.rejectsUnauthenticated -and $report.bridge.explicitDenial -and $report.aiProtocol.payloadValid -and $report.aiProtocol.streamedAnswer -and $report.uiRegressions.pillHitArea -and $report.uiRegressions.aiDropPreserved -and $report.uiRegressions.hiddenTimerFires -and $report.recordingMux.fullVideoPreserved -and $report.musicLifecycle.playingDetected -and $report.musicLifecycle.waveMovesWhilePlaying -and $report.musicLifecycle.animationStops)) { throw 'Один из основных интеграционных тестов не прошёл. См. artifacts/diagnostics.json.' }
 }
-Write-Output 'Готово: artifacts\QuietIsland\QuietIsland.exe'
+$islandPublishedSize = (Get-ChildItem -LiteralPath $islandPublishDirectory -File -Recurse | Measure-Object -Property Length -Sum).Sum
+Write-Output ('Готово: artifacts\QuietIsland\QuietIsland.exe · {0:N1} МБ' -f ($islandPublishedSize / 1MB))

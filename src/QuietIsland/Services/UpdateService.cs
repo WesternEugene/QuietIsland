@@ -1,4 +1,5 @@
 using System.Net.Http;
+using System.Reflection;
 using System.Text.Json;
 using QuietIsland.Core;
 
@@ -13,7 +14,10 @@ public sealed class UpdateService(Func<bool> automaticChecks, UpdateClient? clie
     private Task? loop;
     private bool disposed;
     public Version CurrentVersion { get; } = currentVersion ?? typeof(UpdateService).Assembly.GetName().Version ?? new(0, 0, 0);
-    public string CurrentVersionText => CurrentVersion.Revision > 0 ? CurrentVersion.ToString(4) : CurrentVersion.ToString(3);
+    public string CurrentVersionText { get; } = currentVersion == null
+        ? typeof(UpdateService).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+            ?? (typeof(UpdateService).Assembly.GetName().Version?.ToString(3) ?? "0.0.0")
+        : currentVersion.Revision > 0 ? currentVersion.ToString(4) : currentVersion.ToString(3);
     public AppRelease? Available { get; private set; }
     public string Status { get; private set; } = "Обновления ещё не проверялись.";
     public bool IsChecking { get; private set; }
@@ -41,7 +45,7 @@ public sealed class UpdateService(Func<bool> automaticChecks, UpdateClient? clie
         try
         {
             IsChecking = true; Status = "Проверяем обновления…"; Changed?.Invoke();
-            Available = await client.CheckAsync(CurrentVersion, lifetime.Token).ConfigureAwait(false);
+            Available = await client.CheckAsync(CurrentVersion, lifetime.Token, CurrentVersionText.StartsWith('a')).ConfigureAwait(false);
             Status = Available == null ? "У вас последняя версия." : $"Доступна версия {Available.DisplayVersion}.";
         }
         catch (OperationCanceledException) { Status = "Не удалось проверить обновления: время ожидания истекло."; }

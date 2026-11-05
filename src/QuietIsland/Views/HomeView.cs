@@ -1,8 +1,11 @@
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Threading;
 using NAudio.CoreAudioApi;
 using QuietIsland.Controls;
+using QuietIsland.Models;
 using QuietIsland.Services;
 
 namespace QuietIsland.Views;
@@ -14,7 +17,12 @@ public sealed class HomeView : IslandView
     private readonly Image cover = new() { Width = 82, Height = 82, Stretch = Stretch.UniformToFill };
     private readonly Slider seek = new() { Minimum = 0, Margin = new Thickness(0, 10, 0, 0), Height = 16 };
     private readonly Slider volume = new() { Minimum = 0, Maximum = 100, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 9, 0) };
-    private readonly Button play, record;
+    private readonly Button play, record, lyricsToggle;
+    private readonly LyricsPanel lyrics = new(compact: true) { Height = 82, Margin = new Thickness(12, 0, 0, 0) };
+    private readonly ColumnDefinition lyricsColumn = new();
+    private readonly DispatcherTimer playbackTimer = new(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(100) };
+    private MediaSnapshot? playbackSnapshot;
+    private long playbackStamp;
     private readonly Border musicCard;
     private readonly FrameworkElement coverPlaceholder;
     private System.Windows.Media.Imaging.BitmapSource? coloredCover;
@@ -40,13 +48,16 @@ public sealed class HomeView : IslandView
         title.TextWrapping = TextWrapping.NoWrap; title.TextTrimming = TextTrimming.CharacterEllipsis;
         artist.TextWrapping = TextWrapping.NoWrap; artist.TextTrimming = TextTrimming.CharacterEllipsis; artist.Margin = new Thickness(0, 6, 0, 0);
         var art = new Grid { Width = 82, Height = 82, Clip = new RectangleGeometry(new Rect(0, 0, 82, 82), 12, 12) }; coverPlaceholder = Icons.Tile("music", 82); art.Children.Add(coverPlaceholder); art.Children.Add(cover);
-        var info = new Grid(); info.ColumnDefinitions.Add(new() { Width = new GridLength(98) }); info.ColumnDefinitions.Add(new()); info.Children.Add(art);
+        var info = new Grid(); info.ColumnDefinitions.Add(new() { Width = new GridLength(98) }); info.ColumnDefinitions.Add(new()); info.ColumnDefinitions.Add(lyricsColumn); info.Children.Add(art);
         var names = Ui.Stack(title, artist); names.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(names, 1); info.Children.Add(names);
+        Grid.SetColumn(lyrics, 2); info.Children.Add(lyrics);
         var clocks = new Grid(); clocks.ColumnDefinitions.Add(new()); clocks.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); clocks.Children.Add(elapsed); Grid.SetColumn(duration, 1); clocks.Children.Add(duration);
         play = Ui.AsyncButton("", C.Media.ToggleAsync, C.Error); play.Background = Brushes.White; play.Width = play.Height = 36; play.Padding = new Thickness(0); play.Margin = new Thickness(12, 0, 12, 0); play.SetResourceReference(StyleProperty, "RoundPlayback");
         var previous = Ui.AsyncButton("", C.Media.PreviousAsync, C.Error); var next = Ui.AsyncButton("", C.Media.NextAsync, C.Error); previous.Content = Icons.Make("previous", 19); next.Content = Icons.Make("next", 19); previous.ToolTip = "Предыдущий трек"; next.ToolTip = "Следующий трек";
         foreach (var b in new[] { previous, next }) { b.Background = Brushes.Transparent; b.Padding = new Thickness(9, 4, 9, 4); b.Margin = new Thickness(0); }
-        var playback = Ui.Row(previous, play, next, Icons.Button("music", "Плеер и текст песни", () => C.Go("media", false))); playback.HorizontalAlignment = HorizontalAlignment.Center; playback.Margin = new Thickness(90, 5, 0, 0);
+        var buttons = Ui.Row(previous, play, next, Icons.Button("music", "Плеер и текст песни", () => C.Go("media", false))); buttons.HorizontalAlignment = HorizontalAlignment.Center; buttons.Margin = new Thickness(0);
+        lyricsToggle = Ui.Button("Текст песни", () => C.Lyrics.SetEnabled(!C.Lyrics.Enabled)); lyricsToggle.FontSize = 11; lyricsToggle.Margin = new Thickness(6, 0, 0, 0); lyricsToggle.Padding = new Thickness(8, 4, 8, 4); lyricsToggle.VerticalAlignment = VerticalAlignment.Center;
+        var playback = new Grid { Margin = new Thickness(0, 5, 0, 0) }; playback.ColumnDefinitions.Add(new()); playback.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); playback.Children.Add(buttons); Grid.SetColumn(lyricsToggle, 1); playback.Children.Add(lyricsToggle);
         names.Children.Add(seek); names.Children.Add(clocks);
         musicCard = Ui.Card(Ui.Stack(info, playback), 12);
         var volumeRow = new Grid(); volumeRow.ColumnDefinitions.Add(new() { Width = new GridLength(20) }); volumeRow.ColumnDefinitions.Add(new()); volumeRow.ColumnDefinitions.Add(new() { Width = new GridLength(30) }); volumeRow.Children.Add(Icons.Colored("volume", 19)); Grid.SetColumn(volume, 1); volumeRow.Children.Add(volume); Grid.SetColumn(volumeText, 2); volumeText.VerticalAlignment = VerticalAlignment.Center; volumeRow.Children.Add(volumeText);
@@ -81,7 +92,9 @@ public sealed class HomeView : IslandView
 
         BuildLauncher();
         launcherScroll = new ScrollViewer { Content = launcher, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden, PanningMode = PanningMode.HorizontalOnly, CanContentScroll = false };
-        var dock = Ui.Card(launcherScroll, 5); dock.Margin = new Thickness(0, 3, 6, 0); Grid.SetRow(dock, 1); root.Children.Add(dock); Grid.SetRow(saved, 1); root.Children.Add(saved); Content = root; Refresh();
+        var dock = Ui.Card(launcherScroll, 5); dock.Margin = new Thickness(0, 3, 6, 0); Grid.SetRow(dock, 1); root.Children.Add(dock); Grid.SetRow(saved, 1); root.Children.Add(saved); Content = root;
+        playbackTimer.Tick += PlaybackTick; Loaded += PlaybackLoaded; Unloaded += PlaybackUnloaded; IsVisibleChanged += PlaybackVisibilityChanged;
+        lyrics.RetryRequested += RetryLyrics; C.Lyrics.Changed += LyricsChanged; Refresh();
     }
     private void BuildLauncher()
     {
@@ -100,16 +113,18 @@ public sealed class HomeView : IslandView
     }
     public override void Refresh()
     {
+        if (Disposed) return;
         BuildLauncher();
         var m = C.Media.Current;
+        if (!ReferenceEquals(playbackSnapshot, m)) { playbackSnapshot = m; playbackStamp = Stopwatch.GetTimestamp(); }
+        C.Lyrics.UpdateTrack(m);
         title.Text = m.HasMedia ? m.Title : "Музыка"; artist.Text = m.HasMedia ? m.Artist : "Нет активного плеера"; cover.Source = m.Cover; coverPlaceholder.Visibility = m.Cover == null ? Visibility.Visible : Visibility.Hidden;
         if (!paletteReady || !ReferenceEquals(coloredCover, m.Cover))
         {
             paletteReady = true; coloredCover = m.Cover; var accent = AlbumPalette.Accent(m.Cover); musicCard.Background = AlbumPalette.Surface(accent); seek.Foreground = new SolidColorBrush(accent);
         }
-        play.Content = Icons.Make(m.IsPlaying ? "pause" : "play", 18, "PlayerInk"); play.ToolTip = m.IsPlaying ? "Пауза" : "Воспроизвести"; seek.Maximum = Math.Max(1, m.Duration); seek.IsEnabled = m.HasMedia && m.Duration > 0;
-        if (!seek.IsMouseCaptureWithin) seek.Value = Math.Clamp(m.Position, 0, seek.Maximum);
-        elapsed.Text = Ui.Time(m.Position); duration.Text = Ui.Time(m.Duration);
+        play.Content = Icons.Make(m.IsPlaying ? "pause" : "play", 18, "PlayerInk"); play.ToolTip = m.IsPlaying ? "Пауза" : "Воспроизвести"; seek.Maximum = double.IsFinite(m.Duration) ? Math.Max(1, m.Duration) : 1; seek.IsEnabled = m.HasMedia && m.Duration > 0;
+        duration.Text = Ui.Time(m.Duration); RefreshLyrics();
         updating = true; if (!volume.IsMouseCaptureWithin) volume.Value = C.System.Volume * 100; volumeText.Text = $"{volume.Value:0}%"; updating = false;
         var text = C.Recording.IsStarting ? "Запуск…" : C.Recording.IsFinalizing ? "Сохранение…" : C.Recording.IsRecording ? "Остановить запись" : "Запись экрана";
         if (record.Content is StackPanel stack && stack.Children[1] is TextBlock label)
@@ -130,6 +145,39 @@ public sealed class HomeView : IslandView
             saved.Children.Add(Ui.Button("×", () => { dismissedOutput = output; saved.Visibility = Visibility.Collapsed; launcherScroll.Visibility = Visibility.Visible; }));
         }
     }
+    private void RefreshLyrics()
+    {
+        var enabled = C.Lyrics.Enabled;
+        lyricsToggle.Content = enabled ? "Текст песни: вкл" : "Текст песни: выкл"; lyricsToggle.ToolTip = enabled ? "Скрыть текст песни" : "Показать текст песни";
+        lyricsToggle.SetResourceReference(BackgroundProperty, enabled ? "Accent" : "Card"); lyricsToggle.SetResourceReference(ForegroundProperty, enabled ? "AccentText" : "Text");
+        lyricsColumn.Width = enabled ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+        lyrics.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed; UpdatePlayback(); UpdatePlaybackTimer();
+    }
+    private void UpdatePlayback()
+    {
+        if (Disposed || playbackSnapshot is not { } media) return;
+        var seconds = Math.Max(0, double.IsFinite(media.Position) ? media.Position : 0) + (media.IsPlaying ? Stopwatch.GetElapsedTime(playbackStamp).TotalSeconds : 0);
+        if (double.IsFinite(media.Duration) && media.Duration > 0) seconds = Math.Min(seconds, media.Duration);
+        if (!seek.IsMouseCaptureWithin) seek.Value = Math.Clamp(seconds, 0, seek.Maximum);
+        elapsed.Text = Ui.Time(seconds); if (C.Lyrics.Enabled) lyrics.Update(C.Lyrics.Current, seconds);
+    }
+    private void UpdatePlaybackTimer()
+    {
+        var run = !Disposed && IsLoaded && IsVisible && C.Lyrics.Enabled && playbackSnapshot is { HasMedia: true, IsPlaying: true };
+        if (run) { if (!playbackTimer.IsEnabled) playbackTimer.Start(); }
+        else playbackTimer.Stop();
+    }
+    private void PlaybackTick(object? sender, EventArgs e) { UpdatePlaybackTimer(); if (playbackTimer.IsEnabled) UpdatePlayback(); }
+    private void PlaybackLoaded(object sender, RoutedEventArgs e) { UpdatePlayback(); UpdatePlaybackTimer(); }
+    private void PlaybackUnloaded(object sender, RoutedEventArgs e) => playbackTimer.Stop();
+    private void PlaybackVisibilityChanged(object sender, DependencyPropertyChangedEventArgs e) => UpdatePlaybackTimer();
+    private void RetryLyrics() => C.Lyrics.Retry();
+    private void LyricsChanged()
+    {
+        if (Disposed) return;
+        if (Dispatcher.CheckAccess()) RefreshLyrics();
+        else Dispatcher.InvokeAsync(() => { if (!Disposed) RefreshLyrics(); });
+    }
     private record DeviceOption(string Id, string Name) { public override string ToString() => Name; }
     internal void RefreshOutputChoices()
     {
@@ -143,4 +191,9 @@ public sealed class HomeView : IslandView
         finally { updatingOutputs = false; }
     }
     private static string ShortDevice(string name) { var bracket = name.IndexOf('('); return (bracket > 0 ? name[..bracket] : name).Trim(); }
+    public override void Dispose()
+    {
+        playbackTimer.Stop(); playbackTimer.Tick -= PlaybackTick; Loaded -= PlaybackLoaded; Unloaded -= PlaybackUnloaded; IsVisibleChanged -= PlaybackVisibilityChanged;
+        C.Lyrics.Changed -= LyricsChanged; lyrics.RetryRequested -= RetryLyrics; lyrics.Dispose(); base.Dispose();
+    }
 }

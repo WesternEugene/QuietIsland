@@ -35,6 +35,9 @@ internal static class Program
 
     private static async Task<int> RunAsync()
     {
+        await StartupChecks.RunAsync(CheckAsync);
+        await CaptureChecks.RunAsync(CheckAsync);
+        await ResourceChecks.RunAsync(CheckAsync);
         using var context = new IslandContext(Path.Combine(Path.GetTempPath(), "quiet-island-desktop-checks-" + Guid.NewGuid().ToString("N")));
         await CheckAsync("ffmpeg_prefers_installer_bundle", () =>
         {
