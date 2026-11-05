@@ -17,7 +17,7 @@ public static class FfmpegLocator
         }
         throw new InvalidOperationException(hasDirectory || !isDefault
             ? $"Файл FFmpeg не найден: {configured}. Укажите существующий ffmpeg.exe в настройках записи."
-            : "FFmpeg не найден. Установите FFmpeg для Windows или укажите полный путь к ffmpeg.exe в настройках записи. Проверены PATH и ссылки WinGet.");
+            : "FFmpeg не найден. Установите FFmpeg для Windows или укажите полный путь к ffmpeg.exe в настройках записи. Проверены встроенная копия, PATH и ссылки WinGet.");
     }
 
     private static IEnumerable<string> Candidates(string configured, bool isDefault, bool hasDirectory)
@@ -35,7 +35,11 @@ public static class FfmpegLocator
 
         var executable = Path.HasExtension(configured) ? configured : configured + ".exe";
         yield return Path.Combine(AppContext.BaseDirectory, executable);
-        if (isDefault) yield return Path.Combine(AppContext.BaseDirectory, "tools", executable);
+        if (isDefault)
+        {
+            yield return Path.Combine(AppContext.BaseDirectory, "tools", "ffmpeg", executable);
+            yield return Path.Combine(AppContext.BaseDirectory, "tools", executable);
+        }
         foreach (var target in new[] { EnvironmentVariableTarget.Process, EnvironmentVariableTarget.User, EnvironmentVariableTarget.Machine })
         {
             var paths = Environment.GetEnvironmentVariable("PATH", target) ?? "";

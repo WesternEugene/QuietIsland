@@ -103,6 +103,7 @@ public partial class MainWindow : Window
         AllowDrop = true;
         InitializeDragRetention();
         c.Navigate += ShowPanel; c.CollapseRequested += Collapse;
+        c.Updates.Changed += UpdatesChanged;
         c.Toast += message => Dispatcher.InvokeAsync(() => { toast = message; toastUntil = DateTime.Now.AddSeconds(5); Status.Text = message; UpdateCompact(); });
         c.Media.Changed += () => Dispatcher.InvokeAsync(() => { c.Lyrics.UpdateTrack(c.Media.Current); Fluid.Update(c.Media); RefreshRuntime(runtimeHidden); UpdateCompact(); if (view is MediaView or HomeView) view.Refresh(); });
         c.Agents.Broker.Changed += () => Dispatcher.InvokeAsync(() => { if (c.Agents.Broker.Pending.Count > 0) ShowPanel("activity", false); if (view is ActivityView) view.Refresh(); });
@@ -129,6 +130,7 @@ public partial class MainWindow : Window
         {
             if (c.Recording.IsStarting || c.Recording.IsRecording || c.Recording.IsFinalizing) { e.Cancel = true; c.Notify("Сначала остановите запись: Ctrl+Alt+R"); return; }
             IsClosing = true; printScreen?.Dispose();
+            c.Updates.Changed -= UpdatesChanged;
             c.State.Changed -= AppStateChanged;
             timerSound.Dispose();
             timer.Stop(); interaction.Stop(); hover.Stop(); motion.Dispose(); ReleaseView(); homeCache?.Dispose(); tray?.Dispose(); trayArtwork?.Dispose(); outsidePointer?.Dispose(); scrollRouting.Dispose(); settingsWindow?.Close();
@@ -162,9 +164,11 @@ public partial class MainWindow : Window
         using (var stream = System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/Assets/island.ico"))!.Stream) trayArtwork = new System.Drawing.Icon(stream);
         tray = new System.Windows.Forms.NotifyIcon { Icon = trayArtwork, Visible = true, Text = "Quiet Island" };
         tray.DoubleClick += (_, _) => Dispatcher.Invoke(ShowSettings);
+        tray.BalloonTipClicked += (_, _) => Dispatcher.Invoke(() => ShowSettingsPage("Обновления"));
         var menu = new System.Windows.Forms.ContextMenuStrip();
         menu.Items.Add("Открыть поиск", null, (_, _) => Dispatcher.Invoke(() => { hiddenByUser = false; Show(); ShowPanel("search", true); }));
         menu.Items.Add("Настройки…", null, (_, _) => Dispatcher.Invoke(ShowSettings));
+        menu.Items.Add("Проверить обновления…", null, (_, _) => Dispatcher.InvokeAsync(async () => await CheckForUpdatesAsync()));
         menu.Items.Add("Запись экрана / остановить", null, (_, _) => Dispatcher.InvokeAsync(async () => await ToggleRecordingAsync()));
         menu.Items.Add("Показать / скрыть", null, (_, _) => Dispatcher.Invoke(() => SetIslandHidden(!hiddenByUser)));
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());

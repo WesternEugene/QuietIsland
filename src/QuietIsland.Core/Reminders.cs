@@ -36,11 +36,17 @@ public static class ReminderParser
             reminder.Title = Clean(text.Remove(relative.Index, relative.Length));
             return reminder;
         }
-        var time = Regex.Match(text, @"(?:\bв\s+|\bat\s+)(\d{1,2})(?::(\d{2}))?\b", RegexOptions.IgnoreCase);
+        const string clock = @"(?<hour>\d{1,2})(?::(?<minute>\d{2}))?";
+        const string period = @"(?<period>утра|дня|вечера|ночи)";
+        var time = Regex.Match(text, $@"\b(?:в|at)\s+{clock}\b(?:\s+{period}\b)?|\b{clock}\s+{period}\b", RegexOptions.IgnoreCase);
         if (!time.Success) return null;
-        var hour = int.Parse(time.Groups[1].Value);
-        var minute = time.Groups[2].Success ? int.Parse(time.Groups[2].Value) : 0;
+        var hour = int.Parse(time.Groups["hour"].Value);
+        var minute = time.Groups["minute"].Success ? int.Parse(time.Groups["minute"].Value) : 0;
         if (hour > 23 || minute > 59) return null;
+        var timeOfDay = time.Groups["period"].Value.ToLowerInvariant();
+        // «11 ночи» — поздний вечер, «3 ночи» — раннее утро.
+        if (hour is > 0 and < 12 && (timeOfDay is "дня" or "вечера" || timeOfDay == "ночи" && hour >= 7)) hour += 12;
+        else if (hour == 12 && timeOfDay is "утра" or "ночи" or "вечера") hour = 0;
         var title = text.Remove(time.Index, time.Length);
         var days = Regex.Match(title, @"каждый день|ежедневно|every day|daily", RegexOptions.IgnoreCase);
         reminder.Daily = days.Success;

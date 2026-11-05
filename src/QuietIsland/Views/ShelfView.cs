@@ -16,7 +16,7 @@ public sealed class ShelfView : IslandView
     private readonly Button dragAll;
     public ShelfView(IslandContext context) : base(context)
     {
-        var root = new DockPanel { AllowDrop = true };
+        var root = new DockPanel { AllowDrop = true, Background = Brushes.Transparent };
         dragAll = Ui.Button("Перетащить все", CopyAll, tip: "Перетащите в другое приложение или нажмите, чтобы скопировать файлы");
         FileDrag.Attach(dragAll, () => new DataObject(DataFormats.FileDrop, Existing()));
         var top = new Grid { Margin = new Thickness(0, 0, 0, 8) }; top.ColumnDefinitions.Add(new()); top.ColumnDefinitions.Add(new() { Width = GridLength.Auto });

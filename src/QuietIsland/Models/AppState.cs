@@ -48,6 +48,7 @@ public class AppSettings
     public bool ClipboardAutoPaste { get; set; } = true;
     public bool HideInCapture { get; set; } = true;
     public bool HotkeyAltSpace { get; set; } = true;
+    public bool AutomaticUpdateChecks { get; set; } = true;
     public string ExcludedApps { get; set; } = "";
     public string AudioOutputId { get; set; } = "";
     public string MicrophoneId { get; set; } = "";

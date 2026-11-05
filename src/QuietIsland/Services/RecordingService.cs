@@ -92,7 +92,7 @@ public sealed class RecordingService(DesktopState state) : IDisposable
             }
             if (error is OperationCanceledException) { LastError = null; Changed?.Invoke(); throw; }
             var failure = error is InvalidOperationException ? error : new InvalidOperationException(
-                error is Win32Exception ? "Не удалось запустить FFmpeg. Проверьте путь к ffmpeg.exe и его совместимость с Windows."
+                error is Win32Exception native ? $"Не удалось запустить FFmpeg «{encoderPath}» (ошибка Windows {native.NativeErrorCode}): {native.Message}"
                     : $"Не удалось начать запись: {error.Message}", error);
             LastError = failure.Message; Changed?.Invoke(); throw failure;
         }

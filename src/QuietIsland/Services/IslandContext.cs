@@ -22,19 +22,22 @@ public sealed class IslandContext : IDisposable
     public RecordingService Recording { get; }
     public SpeechService Speech { get; }
     public ObsService Obs { get; }
+    public UpdateService Updates { get; }
     public IReadOnlyList<SearchResult> Applications { get; private set; } = [];
     public IntPtr PasteTarget { get; set; }
     public string AiDraft { get; set; } = "";
     public event Action<string>? Toast;
     public event Action<string, bool>? Navigate;
     public event Action? CollapseRequested;
-    public IslandContext(string? dataDirectory = null, LyricsService? lyrics = null)
+    public IslandContext(string? dataDirectory = null, LyricsService? lyrics = null, UpdateService? updates = null)
     {
         State = new(dataDirectory); Lyrics = lyrics ?? new(); Clipboard = new(State); System = new(State); Ai = new(State); Weather = new(State); Agents = new(State);
         Capture = new(State); Recording = new(State); Speech = new(State); Obs = new(State);
+        Updates = updates ?? new(() => Settings.AutomaticUpdateChecks);
     }
     public async Task StartAsync()
     {
+        Updates.Start();
         Activity.StartInputObserver();
         Applications = await Task.Run(SystemService.DiscoverApplications);
         await Media.StartAsync();
@@ -62,5 +65,5 @@ public sealed class IslandContext : IDisposable
         State.Data.TimerDuration = State.Data.TimerRemaining = duration.TotalSeconds;
         State.Data.TimerEnd = DateTimeOffset.Now.Add(duration); State.Data.TimerPaused = false; State.Touch(); Notify("Таймер запущен · " + Controls.Ui.Time(duration.TotalSeconds));
     }
-    public void Dispose() { State.Save(); Everything.Dispose(); Media.Dispose(); Lyrics.Dispose(); Devices.Dispose(); Happ.Dispose(); Activity.Dispose(); Agents.Dispose(); Recording.Dispose(); Speech.Dispose(); Obs.Dispose(); }
+    public void Dispose() { Updates.Dispose(); State.Save(); Everything.Dispose(); Media.Dispose(); Lyrics.Dispose(); Devices.Dispose(); Happ.Dispose(); Activity.Dispose(); Agents.Dispose(); Recording.Dispose(); Speech.Dispose(); Obs.Dispose(); }
 }

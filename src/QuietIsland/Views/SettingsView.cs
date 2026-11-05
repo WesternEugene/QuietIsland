@@ -13,6 +13,7 @@ public sealed class SettingsView : IslandView
     private readonly Dictionary<string, UIElement> sections = new();
     private readonly TextBlock heading = Ui.Heading("Общие");
     private readonly ScrollViewer scroll;
+    private readonly UpdatesView updates;
     public IReadOnlyList<string> Categories => sections.Keys.ToArray();
     public SettingsView(IslandContext c, MainWindow main) : base(c)
     {
@@ -56,6 +57,8 @@ public sealed class SettingsView : IslandView
         stack.Children.Add(Section("ЗАПИСЬ И ЗВУК", Text("Папка снимков и записей", s.CaptureFolder, x => s.CaptureFolder = Path.GetFullPath(x)), Text("FFmpeg · команда или полный путь", s.FfmpegPath, x => s.FfmpegPath = x.Trim()), Combo("Кадров в секунду", ["30", "60"], s.RecordingFps.ToString(), x => s.RecordingFps = int.Parse(x)), Check("Высокое качество видео", s.RecordingHighQuality, x => s.RecordingHighQuality = x), Check("Записывать системный звук в MP4", s.RecordSystemAudio, x => s.RecordSystemAudio = x), Ui.Field("ID микрофона · пусто — по умолчанию Windows", microphoneId), Ui.AsyncButton("Список микрофонов", () => { var devices = C.System.AudioDevices(NAudio.CoreAudioApi.DataFlow.Capture); var choice = Windows.Dialogs.Choose("Выберите микрофон", devices.Select(x => x.Name).Prepend("По умолчанию").ToArray()); if (choice != null) { microphoneId.Text = devices.FirstOrDefault(x => x.Name == choice).Id ?? ""; C.Notify("Микрофон выбран."); } return Task.CompletedTask; }, C.Error)));
         stack.Children.Add(Section("CLAUDE CODE / CODEX", Check("Локальный мост агентов", s.BridgeEnabled, x => s.BridgeEnabled = x), Number("Порт localhost", s.BridgePort.ToString(), x => s.BridgePort = Port(x)), Ui.Text("При отсутствии ответа запрос автоматически отклоняется. Подключение хуков и app-server описано в integrations/README.md. Настройки агентов приложение самостоятельно не меняет.", 11, "Muted"), Ui.Button("Путь к токену моста", () => { System.Windows.Clipboard.SetText(C.Agents.TokenFile); C.Notify("Путь к файлу токена скопирован"); })));
         stack.Children.Add(Section("OBS WEBSOCKET 5", Check("Подключаться к OBS на этом компьютере", s.ObsEnabled, x => s.ObsEnabled = x), Number("Порт OBS", s.ObsPort.ToString(), x => s.ObsPort = Port(x)), Secret("Пароль OBS WebSocket", x => s.ObsPasswordEncrypted = DesktopState.Protect(x)), Ui.Text("В OBS: Инструменты → Настройки сервера WebSocket. Пароль нужен только при включённой авторизации.", 11, "Muted")));
+        updates = new(c, main);
+        stack.Children.Add(Section("ОБНОВЛЕНИЯ", Check("Автоматически проверять обновления", s.AutomaticUpdateChecks, x => s.AutomaticUpdateChecks = x), updates));
         scroll = Ui.Scroll(stack);
         var root = new DockPanel(); var header = Ui.Stack(heading, Ui.Text("", 8)); DockPanel.SetDock(header, Dock.Top); root.Children.Add(header);
         var footer = Ui.Stack(saveStatus, Ui.Button("Папка данных", () => { Directory.CreateDirectory(DesktopState.DataDirectory); SystemService.Open(DesktopState.DataDirectory); })); DockPanel.SetDock(footer, Dock.Bottom); root.Children.Add(footer); root.Children.Add(scroll);
@@ -64,7 +67,7 @@ public sealed class SettingsView : IslandView
     private static int Port(double number) => number is >= 1024 and <= 65535 && number == Math.Truncate(number) ? (int)number : throw new InvalidOperationException("Порт должен быть целым числом от 1024 до 65535");
     private UIElement Section(string title, params UIElement[] content)
     {
-        var name = title switch { "ВИД ОСТРОВА" => "Вид острова", "СОСТАВ И МУЗЫКА" => "Состав и музыка", "ВЕРХНЯЯ ПАНЕЛЬ" => "Верхняя панель", "РЕСУРСЫ" => "Ресурсы", "ОСТРОВ" => "Общие", "БУФЕР И КЛАВИШИ" => "Буфер и клавиши", "ИИ" => "Искусственный интеллект", "ДИКТОВКА" => "Диктовка", "ЗАПИСЬ И ЗВУК" => "Запись и звук", "CLAUDE CODE / CODEX" => "Агенты", _ => "OBS" };
+        var name = title switch { "ВИД ОСТРОВА" => "Вид острова", "СОСТАВ И МУЗЫКА" => "Состав и музыка", "ВЕРХНЯЯ ПАНЕЛЬ" => "Верхняя панель", "РЕСУРСЫ" => "Ресурсы", "ОСТРОВ" => "Общие", "БУФЕР И КЛАВИШИ" => "Буфер и клавиши", "ИИ" => "Искусственный интеллект", "ДИКТОВКА" => "Диктовка", "ЗАПИСЬ И ЗВУК" => "Запись и звук", "CLAUDE CODE / CODEX" => "Агенты", "ОБНОВЛЕНИЯ" => "Обновления", _ => "OBS" };
         var panel = Ui.Stack(content); panel.Margin = new Thickness(0, 4, 14, 12); sections[name] = panel; return panel;
     }
     public void SelectCategory(string name)
@@ -151,6 +154,6 @@ public sealed class SettingsView : IslandView
     {
         foreach (var item in pending) item.Flush(); C.State.Save();
     }
-    public override void Dispose() { Save(); foreach (var item in pending) item.Timer.Stop(); base.Dispose(); }
+    public override void Dispose() { updates.Dispose(); Save(); foreach (var item in pending) item.Timer.Stop(); base.Dispose(); }
 }
 

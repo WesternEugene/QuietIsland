@@ -26,6 +26,12 @@ if ($LASTEXITCODE -ne 0) { throw 'Сборка не прошла.' }
 Copy-Item -LiteralPath 'README.md','CHANGELOG.md','THIRD_PARTY_NOTICES.md' -Destination 'artifacts\QuietIsland'
 Copy-Item -LiteralPath 'integrations' -Destination 'artifacts\QuietIsland' -Recurse -Force
 Copy-Item -LiteralPath 'docs','packaging' -Destination 'artifacts\QuietIsland' -Recurse -Force
+$islandBundledEncoder = Join-Path $PSScriptRoot 'packaging\dependencies\ffmpeg'
+if (Test-Path -LiteralPath (Join-Path $islandBundledEncoder 'ffmpeg.exe')) {
+    $islandEncoderTarget = Join-Path $PSScriptRoot 'artifacts\QuietIsland\tools\ffmpeg'
+    New-Item -ItemType Directory -Force -Path $islandEncoderTarget | Out-Null
+    Get-ChildItem -LiteralPath $islandBundledEncoder | Copy-Item -Destination $islandEncoderTarget -Recurse -Force
+}
 if ($Diagnose) {
     $islandReport = Join-Path $PSScriptRoot 'artifacts\diagnostics.json'
     $islandCheck = Start-Process -FilePath (Join-Path $PSScriptRoot 'artifacts\QuietIsland\QuietIsland.exe') -ArgumentList @('--diagnostics','--render','--ui-checks','--motion-checks',('"' + $islandReport + '"')) -WindowStyle Hidden -PassThru
