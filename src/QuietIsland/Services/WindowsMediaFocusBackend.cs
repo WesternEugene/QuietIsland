@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using NAudio.CoreAudioApi;
 using NAudio.CoreAudioApi.Interfaces;
+using QuietIsland.Core;
 using Windows.Media.Control;
 
 namespace QuietIsland.Services;
@@ -13,7 +14,8 @@ public sealed class WindowsMediaFocusBackend(MediaService media) : IMediaFocusBa
     private readonly Dictionary<string, GlobalSystemMediaTransportControlsSession> controls = [];
     private readonly Dictionary<string, MMDevice> outputs = [];
     private readonly Dictionary<uint, (string Name, string AppId, DateTime Until)> apps = [];
-    private readonly Dictionary<string, (FocusAudio Source, DateTime Until)> audible = [];
+    private readonly Dictionary<string, FocusAudio> audible = [];
+    private readonly AudioActivityFilter audioActivity = new();
     private DateTime nextOutputs;
     public FocusSnapshot ReadSnapshot(bool includeAudio)
     {
@@ -31,7 +33,7 @@ public sealed class WindowsMediaFocusBackend(MediaService media) : IMediaFocusBa
         var current = media.CurrentSystemFocusTargetId;
         if (!includeAudio) { ReleaseAudio(); return new(playback, [], current); }
         ReadAudio();
-        return MergeAudio(playback, audible.Values.Select(x => x.Source), current);
+        return MergeAudio(playback, audible.Values, current);
     }
     private static FocusSnapshot MergeAudio(List<FocusPlayback> playback, IEnumerable<FocusAudio> audible, string? current)
     {
@@ -61,6 +63,7 @@ public sealed class WindowsMediaFocusBackend(MediaService media) : IMediaFocusBa
     private void ReadAudio()
     {
         var now = DateTime.UtcNow;
+        var heard = new HashSet<string>();
         if (now >= nextOutputs)
         {
             nextOutputs = now.AddSeconds(3);
@@ -93,17 +96,19 @@ public sealed class WindowsMediaFocusBackend(MediaService media) : IMediaFocusBa
                         if (pid == 0 || pid == Environment.ProcessId || session.IsSystemSoundsSession || session.State != AudioSessionState.AudioSessionStateActive || session.SimpleAudioVolume.Mute || session.AudioMeterInformation.MasterPeakValue < .003f) continue;
                         var app = ReadApp(pid, now);
                         if (app.Length == 0) continue;
-                        // Group a process's streams and outputs into one source. Quiet voice gaps
-                        // retain focus briefly instead of restarting music between spoken words.
+                        // Group a process's streams and outputs into one source.
                         var id = "audio:" + pid;
-                        audible[id] = (new FocusAudio(id, app, true), now.AddMilliseconds(900));
+                        heard.Add(id); audible[id] = new FocusAudio(id, app, true);
                     }
                     catch (Exception e) when (e is COMException or ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception) { }
                 }
             }
             catch (Exception e) when (e is COMException or InvalidOperationException) { outputs.Remove(output.ID); output.Dispose(); }
         }
-        foreach (var id in audible.Where(x => x.Value.Until <= now).Select(x => x.Key).ToArray()) audible.Remove(id);
+        // Transport Playing above remains immediate. Only the native-meter
+        // fallback waits for sustained sound, so short notifications cannot steal focus.
+        var activeSources = audioActivity.Update(heard, now);
+        foreach (var id in audible.Keys.Where(id => !activeSources.Contains(id)).ToArray()) audible.Remove(id);
         foreach (var pid in apps.Where(x => x.Value.Until <= now).Select(x => x.Key).ToArray()) apps.Remove(pid);
     }
     private string ReadApp(uint pid, DateTime now)
@@ -128,7 +133,7 @@ public sealed class WindowsMediaFocusBackend(MediaService media) : IMediaFocusBa
         var info = target.GetPlaybackInfo();
         return paused ? info.Controls.IsPauseEnabled && await target.TryPauseAsync() : info.Controls.IsPlayEnabled && await target.TryPlayAsync();
     }
-    private void ReleaseAudio() { foreach (var output in outputs.Values) output.Dispose(); outputs.Clear(); audible.Clear(); apps.Clear(); nextOutputs = default; }
+    private void ReleaseAudio() { foreach (var output in outputs.Values) output.Dispose(); outputs.Clear(); audible.Clear(); audioActivity.Reset(); apps.Clear(); nextOutputs = default; }
     public void Dispose() { ReleaseAudio(); controls.Clear(); }
     [DllImport("kernel32.dll", SetLastError = true)] private static extern IntPtr OpenProcess(uint access, bool inherit, uint process);
     [DllImport("kernel32.dll")] private static extern bool CloseHandle(IntPtr handle);
