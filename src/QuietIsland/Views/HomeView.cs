@@ -88,8 +88,19 @@ public sealed class HomeView : IslandView
             var label = Ui.Text(text, 12, bold: true); label.MaxWidth = 60; label.VerticalAlignment = VerticalAlignment.Center; label.Margin = new Thickness(8, 0, 0, 0); content.Children.Add(label);
             b.Content = content; b.HorizontalContentAlignment = HorizontalAlignment.Left; b.Padding = new Thickness(11, 8, 8, 8); b.Margin = new Thickness(0, 0, 6, 6); tools.Children.Add(b); return b;
         }
-        Tool("shot", "Область", () => window.ScreenshotAsync("shot"));
-        Tool("screen", "Весь экран", window.ScreenshotFullAsync);
+        void CapturePreference(Button button)
+        {
+            var menu = button.ContextMenu ?? new ContextMenu();
+            var hide = new MenuItem { Header = "Скрывать чёлку на снимках и в записи", IsCheckable = true, IsChecked = C.Settings.HideInCapture };
+            menu.Opened += (_, _) => hide.IsChecked = C.Settings.HideInCapture;
+            hide.Click += (_, _) => window.SetCapturePreference(hide.IsChecked);
+            if (menu.Items.Count > 0) menu.Items.Add(new Separator());
+            menu.Items.Add(hide); button.ContextMenu = menu;
+        }
+        var shot = Tool("shot", "Область", () => window.ScreenshotAsync("shot")); CapturePreference(shot);
+        shot.ToolTip = "Снимок области · правая кнопка: скрытие чёлки";
+        var screenShot = Tool("screen", "Весь экран", window.ScreenshotFullAsync); CapturePreference(screenShot);
+        screenShot.ToolTip = "Снимок экрана · правая кнопка: скрытие чёлки";
         Tool("ocr", "Текст с экрана", () => window.ScreenshotAsync("ocr"));
         Tool("qr", "QR-код", () => window.ScreenshotAsync("qr"));
         Tool("color", "Пипетка", () => window.ScreenshotAsync("color"));
@@ -102,6 +113,7 @@ public sealed class HomeView : IslandView
         { var item = new MenuItem { Header = label }; item.Click += async (_, _) => await window.ToggleRecordingAsync(fullScreen: true, allScreens: all); menu.Items.Add(item); }
         var folder = new MenuItem { Header = "Открыть папку записей" }; folder.Click += (_, _) => { Directory.CreateDirectory(C.Settings.CaptureFolder); SystemService.Open(C.Settings.CaptureFolder); }; menu.Items.Add(folder); record.ContextMenu = menu;
         var recordingSettings = new MenuItem { Header = "Настройки записи…" }; recordingSettings.Click += (_, _) => C.Go("settings:recording"); menu.Items.Add(recordingSettings);
+        CapturePreference(record);
         Tool("command", "Команда", () => { C.Go("search", true); return Task.CompletedTask; });
         Grid.SetColumn(tools, 2); columns.Children.Add(tools);
 
@@ -148,7 +160,7 @@ public sealed class HomeView : IslandView
             label.Text = text;
             if (shownRecordingIcon != C.Recording.IsRecording) { shownRecordingIcon = C.Recording.IsRecording; stack.Children.RemoveAt(0); stack.Children.Insert(0, Icons.Colored(C.Recording.IsRecording ? "stop" : "record", 23)); }
         }
-        record.IsEnabled = !C.Recording.IsStarting && !C.Recording.IsFinalizing; record.ToolTip = text + " · " + GlobalShortcuts.Label(C.Settings, "recording") + "\nПравая кнопка: MP4 / GIF и папка записей";
+        record.IsEnabled = !C.Recording.IsStarting && !C.Recording.IsFinalizing; record.ToolTip = text + " · " + GlobalShortcuts.Label(C.Settings, "recording") + "\nПравая кнопка: MP4 / GIF, скрытие чёлки и папка записей";
         var output = C.Recording.LastOutputPath;
         var showOutput = output != null && output != dismissedOutput;
         SetSavedVisible(showOutput);

@@ -11,7 +11,13 @@ public sealed class MediaFocusPolicy
     private DateTimeOffset? quietSince;
     public bool HasOwnership => owned.Count > 0;
     public IEnumerable<string> OwnedIds => owned;
-    public void BeginEpisode() { overridden.Clear(); quietSince = null; }
+    public void BeginEpisode(IEnumerable<string>? playingIds = null)
+    {
+        overridden.Clear(); quietSince = null;
+        // A player already resumed at a fresh alarm belongs to the old episode.
+        // Release that stale ownership before Update infers a manual override.
+        foreach (var id in playingIds ?? []) { owned.Remove(id); observedPaused.Remove(id); pending.Remove(id); }
+    }
     public void Cancel(string? id = null)
     {
         if (id == null) { overridden.UnionWith(owned); overridden.UnionWith(pending); owned.Clear(); observedPaused.Clear(); pending.Clear(); }

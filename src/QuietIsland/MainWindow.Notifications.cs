@@ -53,16 +53,17 @@ public partial class MainWindow
     });
     private void TimerFinished(string title)
     {
-        timerAlarm = true; RevealAlarm();
+        timerAlarm = true; RevealAlarm(c.Settings.PauseMediaForTimer);
     }
     private void ReminderFinished(Reminder reminder)
     {
-        if (!reminderAlarms.Any(x => x.Id == reminder.Id)) reminderAlarms.Enqueue(reminder);
-        RevealAlarm();
+        var added = !reminderAlarms.Any(x => x.Id == reminder.Id);
+        if (added) reminderAlarms.Enqueue(reminder);
+        RevealAlarm(added && c.Settings.PauseMediaForReminder);
     }
-    private void RevealAlarm()
+    private void RevealAlarm(bool newAlarm = false)
     {
-        PresentAlarm();
+        PresentAlarm(newAlarm);
         if (!snapshot)
         {
             hiddenByUser = false; Show(); UpdateRuntimeVisibility(DateTime.Now);
@@ -72,9 +73,9 @@ public partial class MainWindow
         }
         UpdateCompact();
     }
-    private void PresentAlarm()
+    private void PresentAlarm(bool newAlarm = false)
     {
-        if (!snapshot) c.Focus.SetAlarmState(timerAlarm, reminderAlarms.Count > 0);
+        if (!snapshot) c.Focus.SetAlarmState(timerAlarm, reminderAlarms.Count > 0, newAlarm);
         var isReminder = reminderAlarms.TryPeek(out var reminder);
         CompactAlarmTitle.Text = TimerNoticeTitle.Text = isReminder ? reminder!.Title : "Таймер";
         CompactAlarmIcon.Content = Icons.Colored(isReminder ? "bell" : "clock", 24);

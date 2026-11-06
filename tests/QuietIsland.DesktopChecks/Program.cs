@@ -38,6 +38,7 @@ internal static class Program
         await StartupChecks.RunAsync(CheckAsync);
         await PolishChecks.RunAsync(CheckAsync);
         await MediaFocusChecks.RunAsync(CheckAsync);
+        await CaptureVisibilityChecks.RunAsync(CheckAsync);
         await WeatherReliabilityChecks.RunAsync(CheckAsync);
         await VisualPolishChecks.RunAsync(CheckAsync);
         await CaptureChecks.RunAsync(CheckAsync);
@@ -214,6 +215,8 @@ internal static class Program
     {
         var filter = Environment.GetEnvironmentVariable("QUIET_ISLAND_CHECK_FILTER");
         if (!string.IsNullOrEmpty(filter) && !name.Contains(filter, StringComparison.OrdinalIgnoreCase)) return;
+        var excluded = Environment.GetEnvironmentVariable("QUIET_ISLAND_CHECK_EXCLUDE")?.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries) ?? [];
+        if (excluded.Any(x => name.Contains(x, StringComparison.OrdinalIgnoreCase))) { Console.WriteLine("SKIP " + name); return; }
         try { await check(); Results.Add(new { name, passed = true, error = "" }); }
         catch (Exception error) { Results.Add(new { name, passed = false, error = error.ToString() }); }
     }

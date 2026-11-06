@@ -246,6 +246,12 @@ public partial class MainWindow : Window
         {
             ShowSettingsPage(tab switch { "settings:ai" => "Искусственный интеллект", "settings:recording" => "Запись и звук", "settings:speech" => "Диктовка", _ => null }); return;
         }
+        if (HiddenForCapture)
+        {
+            if (focus && c.Recording.IsRecording)
+                tray?.ShowBalloonTip(4000, "Чёлка скрыта во время записи", "Остановка: " + GlobalShortcuts.Label(c.Settings, "recording") + " или меню значка в трее", System.Windows.Forms.ToolTipIcon.Info);
+            return;
+        }
         if (!snapshot && overlayBlocked && !focus && !DragHeld) return;
         hiddenByUser = false;
         if (focus) { fullscreenOverride = true; overlayBlocked = false; }
@@ -278,7 +284,12 @@ public partial class MainWindow : Window
         Root.Height = Math.Max(560, height + 12);
         Panel.Height = height - 44;
         if (!wasExpanded || Math.Abs(Fluid.VisualHeight - height) > .1) AnimateShell(true, preserveContent: reversingContent);
-        if (!snapshot || mirrorOwner != null) { Show(); ResizeAndPosition(); Native.ConfigureOverlay(this, focus, false, c.Settings.HideInCapture); if (focus) { Activate(); Dispatcher.BeginInvoke(() => view?.FocusInput(), DispatcherPriority.Input); } }
+        if (!snapshot || mirrorOwner != null)
+        {
+            Show(); ResizeAndPosition(); var visibleFocus = focus && !HiddenForCapture;
+            Native.ConfigureOverlay(this, visibleFocus, false, c.Settings.HideInCapture);
+            if (visibleFocus) { Activate(); Dispatcher.BeginInvoke(() => { if (!IsClosing && !HiddenForCapture) view?.FocusInput(); }, DispatcherPriority.Input); }
+        }
         view.Refresh();
         lastPoll = DateTime.MinValue; RefreshRuntime(false);
     }
@@ -399,6 +410,7 @@ public partial class MainWindow : Window
     private System.Windows.Forms.Screen Screen => ResolveScreen();
     private void ResizeAndPosition(bool hidden = false)
     {
+        hidden |= hiddenByUser || HiddenForCapture;
         var bounds = Screen.Bounds; var dpi = Native.MonitorDpi(Screen);
         var next = QuietIsland.Core.OverlayLayout.CalculateSize(bounds.Left, bounds.Top, bounds.Width, bounds.Height, dpi.X, dpi.Y, c.Settings.Scale, c.Settings.TopOffset, 744, Root.Height);
         Scale.ScaleX = Scale.ScaleY = next.Scale;
@@ -545,6 +557,7 @@ public partial class MainWindow : Window
         selectionBusy = true;
         try
         {
+            using var capture = SuppressForCapture();
             Collapse();
             if (snapshot && SelectionForChecks != null) return await SelectionForChecks(color);
             using var cancellation = new CancellationTokenSource();
@@ -558,7 +571,7 @@ public partial class MainWindow : Window
     {
         if (selectionBusy) { c.Notify("Сначала завершите выбор области. Esc отменяет выделение."); return; }
         selectionBusy = true;
-        try { Collapse(); await Task.Delay(300); await SaveScreenshotAsync(CaptureService.Screen(Screen.Bounds)); }
+        try { using var capture = SuppressForCapture(); Collapse(); await Task.Delay(300); await SaveScreenshotAsync(CaptureService.Screen(Screen.Bounds)); }
         catch (Exception e) { c.Error(e); }
         finally { selectionBusy = false; }
     }
@@ -575,10 +588,17 @@ public partial class MainWindow : Window
         {
             if (c.Recording.IsStarting || c.Recording.IsFinalizing) { c.Notify(c.Recording.IsStarting ? "Запись запускается…" : "Запись сохраняется…"); return; }
             if (c.Recording.IsRecording) { var path = await c.Recording.StopAsync(); if (path != null) { var files = new System.Collections.Specialized.StringCollection { path }; System.Windows.Clipboard.SetFileDropList(files); c.Notify("Запись сохранена и скопирована как файл"); ShowPanel("home", false); } return; }
+            using var capture = SuppressForCapture();
             System.Drawing.Rectangle? bounds;
             if (fullScreen) { Collapse(); await Task.Delay(300); bounds = allScreens ? System.Windows.Forms.SystemInformation.VirtualScreen : Screen.Bounds; }
             else bounds = (await SelectRegionAsync())?.Bounds;
-            if (bounds is { } area) { await c.Recording.StartAsync(area, gif); c.Notify(c.Recording.Warning ?? "Запись началась · нажмите чёлку или " + GlobalShortcuts.Label(c.Settings, "recording") + " для остановки"); }
+            if (bounds is { } area)
+            {
+                await c.Recording.StartAsync(area, gif);
+                var stop = c.Settings.HideInCapture ? "Остановка: " + GlobalShortcuts.Label(c.Settings, "recording") + " или меню значка в трее"
+                    : "Нажмите чёлку или " + GlobalShortcuts.Label(c.Settings, "recording") + " для остановки";
+                c.Notify((c.Recording.Warning ?? "Запись началась") + " · " + stop);
+            }
         }
         catch (Exception e) { c.Error(e); }
         finally { recordCommandBusy = false; }

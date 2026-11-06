@@ -34,6 +34,7 @@ public partial class MainWindow
         void OnRecording() => Dispatcher.InvokeAsync(() =>
         {
             if (IsClosing) return;
+            RefreshCaptureVisibility();
             if (mirrorOwner == null && c.Recording.LastError is { } error && error != lastRecordingError) { lastRecordingError = error; c.Notify(error); }
             if (c.Recording.LastError == null) lastRecordingError = null;
             UpdateCompact(); view?.Refresh();

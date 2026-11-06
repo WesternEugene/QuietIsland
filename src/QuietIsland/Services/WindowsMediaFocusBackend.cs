@@ -8,7 +8,7 @@ using Windows.Media.Control;
 
 namespace QuietIsland.Services;
 
-/// <summary>Reads every active output so communication audio is detected on its own endpoint.</summary>
+/// <summary>Reads transport sessions and sustained player/browser audio across active outputs.</summary>
 public sealed class WindowsMediaFocusBackend(MediaService media) : IMediaFocusBackend
 {
     private readonly Dictionary<string, GlobalSystemMediaTransportControlsSession> controls = [];
@@ -52,11 +52,13 @@ public sealed class WindowsMediaFocusBackend(MediaService media) : IMediaFocusBa
     private static string Canonical(string app) => new(app.Replace(".exe", "", StringComparison.OrdinalIgnoreCase).Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
     private static bool Matches(string source, string audioApp)
     {
+        var sourceApp = MediaApplicationPolicy.CanonicalId(source);
+        var nativeApp = MediaApplicationPolicy.CanonicalId(audioApp);
+        if (sourceApp != null && nativeApp != null) return sourceApp == nativeApp;
         var sourceKey = Canonical(source);
         return audioApp.Split('|', StringSplitOptions.RemoveEmptyEntries).Any(part =>
         {
             var key = Canonical(part);
-            if (key == "msedge") key = "microsoftedge";
             return key.Length > 0 && sourceKey.Contains(key, StringComparison.Ordinal);
         });
     }
@@ -95,7 +97,7 @@ public sealed class WindowsMediaFocusBackend(MediaService media) : IMediaFocusBa
                         var pid = session.GetProcessID;
                         if (pid == 0 || pid == Environment.ProcessId || session.IsSystemSoundsSession || session.State != AudioSessionState.AudioSessionStateActive || session.SimpleAudioVolume.Mute || session.AudioMeterInformation.MasterPeakValue < .003f) continue;
                         var app = ReadApp(pid, now);
-                        if (app.Length == 0) continue;
+                        if (app.Length == 0 || !MediaApplicationPolicy.AllowsNativeAudio(app)) continue;
                         // Group a process's streams and outputs into one source.
                         var id = "audio:" + pid;
                         heard.Add(id); audible[id] = new FocusAudio(id, app, true);

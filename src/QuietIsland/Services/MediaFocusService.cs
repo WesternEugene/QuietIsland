@@ -11,7 +11,7 @@ public sealed class MediaFocusService : IDisposable
     private readonly MediaFocusPolicy policy = new();
     private readonly MediaSourceArbiter sources = new();
     private readonly DispatcherTimer timer = new(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(300) };
-    private bool timerAlarm, reminderAlarm, busy, disposed, started, monitoringAudio;
+    private bool timerAlarm, reminderAlarm, alarmEpisode, timerEpisode, reminderEpisode, restartAlarm, busy, disposed, started, monitoringAudio;
     private int revision;
     private readonly Dictionary<string, int> manualRevisions = [];
     private readonly Dictionary<string, (int Attempts, DateTimeOffset Until)> resumeRetries = [];
@@ -27,7 +27,10 @@ public sealed class MediaFocusService : IDisposable
         if (started || disposed) return;
         started = true; timer.Start();
     }
-    public void SetAlarmState(bool timerActive, bool reminderActive) { timerAlarm = timerActive; reminderAlarm = reminderActive; _ = RefreshAsync(); }
+    public void SetAlarmState(bool timerActive, bool reminderActive, bool newAlarm = false)
+    {
+        timerAlarm = timerActive; reminderAlarm = reminderActive; restartAlarm |= newAlarm; _ = RefreshAsync();
+    }
     private void Tick(object? sender, EventArgs e) => _ = RefreshAsync();
     private void ManualControl()
     {
@@ -41,11 +44,13 @@ public sealed class MediaFocusService : IDisposable
     {
         if (disposed || busy) return;
         var s = c.Settings;
-        var alarm = timerAlarm && s.PauseMediaForTimer || reminderAlarm && s.PauseMediaForReminder;
+        var timerInterruption = timerAlarm && s.PauseMediaForTimer;
+        var reminderInterruption = reminderAlarm && s.PauseMediaForReminder;
+        var alarm = timerInterruption || reminderInterruption;
         if (!alarm && !s.PauseMediaForOtherAudio && !policy.HasOwnership)
         {
             policy.Update([], false, s.ResumeInterruptedMedia, TimeSpan.Zero, DateTimeOffset.UtcNow);
-            sources.Reset(); winner = pendingResume = null;
+            sources.Reset(); winner = pendingResume = null; alarmEpisode = timerEpisode = reminderEpisode = restartAlarm = false;
             if (monitoringAudio) { backend.ReadSnapshot(false); monitoringAudio = false; }
             return;
         }
@@ -55,16 +60,32 @@ public sealed class MediaFocusService : IDisposable
             var now = clock.GetUtcNow();
             var snapshot = backend.ReadSnapshot(s.PauseMediaForOtherAudio); monitoringAudio = s.PauseMediaForOtherAudio;
             var filters = s.AudioInterruptApps.Split([',', ';'], StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-            bool Allowed(string app) => filters.Length == 0 || filters.Any(x => app.Contains(x.Replace(".exe", "", StringComparison.OrdinalIgnoreCase), StringComparison.OrdinalIgnoreCase));
-            var activity = snapshot.Playback.Where(x => Allowed(x.App)).Select(x => new MediaSourceState(x.Id, x.IsPlaying || x.IsAudible, x.IsPlaying))
-                .Concat(snapshot.Audio.Where(x => Allowed(x.App)).Select(x => new MediaSourceState(x.Id, x.IsActive))).ToArray();
+            bool Allowed(string app)
+            {
+                var canonical = MediaApplicationPolicy.CanonicalId(app);
+                return filters.Length == 0 || filters.Any(x => app.Contains(x.Replace(".exe", "", StringComparison.OrdinalIgnoreCase), StringComparison.OrdinalIgnoreCase)
+                    || canonical != null && (canonical.Equals(MediaApplicationPolicy.CanonicalId(x), StringComparison.OrdinalIgnoreCase)
+                        || canonical.Contains(x.Replace(".exe", "", StringComparison.OrdinalIgnoreCase), StringComparison.OrdinalIgnoreCase)));
+            }
+            var activity = snapshot.Playback.Where(x => Allowed(x.App) && MediaApplicationPolicy.IsMediaApplication(x.App))
+                .Select(x => new MediaSourceState(x.Id, x.IsPlaying || !MediaApplicationPolicy.IsTelegram(x.App) && x.IsAudible, x.IsPlaying))
+                .Concat(snapshot.Audio.Where(x => Allowed(x.App) && MediaApplicationPolicy.AllowsNativeAudio(x.App)).Select(x => new MediaSourceState(x.Id, x.IsActive))).ToArray();
             var active = s.PauseMediaForOtherAudio ? sources.Update(activity, snapshot.CurrentId, now) : null;
             if (pendingResume != null && (now >= pendingResumeUntil || snapshot.Playback.All(x => x.Id != pendingResume) || snapshot.Playback.Any(x => x.Id == pendingResume && x.IsPlaying))) pendingResume = null;
             active ??= pendingResume;
-            if (active != winner) { winner = active; policy.BeginEpisode(); resumeRetries.Clear(); }
+            // An alarm is its own interruption episode, even when the current
+            // player has not changed since the user's last transport command.
+            // Meter/transport changes during that alarm must not erase a manual override.
+            var newAlarm = alarm && (restartAlarm || timerInterruption && !timerEpisode || reminderInterruption && !reminderEpisode);
+            if (newAlarm || !alarm && (alarmEpisode || active != winner))
+            {
+                policy.BeginEpisode(newAlarm ? snapshot.Playback.Where(x => x.IsPlaying).Select(x => x.Id) : null);
+                resumeRetries.Clear();
+            }
+            winner = active; alarmEpisode = alarm; timerEpisode = timerInterruption; reminderEpisode = reminderInterruption; restartAlarm = false;
             var resume = s.PauseMediaForOtherAudio ? sources.NextToResume(policy.OwnedIds) : null;
             var actions = policy.Update(snapshot.Playback.Select(x => new MediaFocusSession(x.Id, x.IsPlaying,
-                x.CanPause && (alarm || active != null && active != x.Id),
+                x.CanPause && (alarm || MediaApplicationPolicy.IsMediaApplication(x.App) && active != null && active != x.Id),
                 x.CanPlay && (!s.PauseMediaForOtherAudio || x.Id == resume) && (!resumeRetries.TryGetValue(x.Id, out var retry) || retry.Until <= now))), alarm || active != null, s.ResumeInterruptedMedia, TimeSpan.FromMilliseconds(s.MediaResumeDelayMs), now);
             var versions = actions.ToDictionary(x => x.Id, x => manualRevisions.GetValueOrDefault(x.Id));
             foreach (var action in actions)

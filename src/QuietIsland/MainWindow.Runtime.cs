@@ -59,7 +59,7 @@ public partial class MainWindow
         var autohide = !expanded && !HasAlarm && c.Settings.AutoHide && !Root.IsMouseOver && !DragHeld;
         if (!overlayBlocked && Native.GetCursorPos(out var pointer) && pointer.Y >= Screen.Bounds.Top && pointer.Y <= Screen.Bounds.Top + 4 && Math.Abs(pointer.X - (Screen.Bounds.Left + Screen.Bounds.Width / 2)) < 150)
         { autohide = false; lastInside = now; }
-        var hidden = hiddenByUser || overlayBlocked || autohide && (now - lastInside).TotalSeconds > 1;
+        var hidden = hiddenByUser || HiddenForCapture || overlayBlocked || autohide && (now - lastInside).TotalSeconds > 1;
         economyMode = c.Settings.AutoReduceResources && pressure.Sample(fullscreen, c.Settings.ResourceHeavyApps);
         ResizeAndPosition(hidden); RefreshRuntime(hidden);
     }
@@ -67,7 +67,7 @@ public partial class MainWindow
     {
         if (selectionBusy) { c.Notify("Сначала завершите выбор области. Esc отменяет выделение."); return; }
         selectionBusy = true;
-        try { Collapse(); await Task.Delay(300); await SaveScreenshotAsync(CaptureService.Screen(System.Windows.Forms.SystemInformation.VirtualScreen)); }
+        try { using var capture = SuppressForCapture(); Collapse(); await Task.Delay(300); await SaveScreenshotAsync(CaptureService.Screen(System.Windows.Forms.SystemInformation.VirtualScreen)); }
         catch (Exception e) { c.Error(e); }
         finally { selectionBusy = false; }
     }
