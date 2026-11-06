@@ -9,6 +9,7 @@ public class AppSettings
     public double PillOpacity { get; set; } = 1;
     public double PanelOpacity { get; set; } = 1;
     public double HoverCloseDelayMs { get; set; } = 220;
+    public double HoverOpenDelayMs { get; set; } = 320;
     public double CompactMinWidth { get; set; } = 190;
     public double CompactMaxWidth { get; set; } = 700;
     public double CompactHeight { get; set; } = 52;
@@ -38,6 +39,14 @@ public class AppSettings
     public string AccentColor { get; set; } = "#FF8B81";
     public string SurfaceColor { get; set; } = "#000000";
     public int Monitor { get; set; }
+    public List<string> IslandDisplays { get; set; } = [];
+    public bool PauseMediaForTimer { get; set; } = true;
+    public bool PauseMediaForReminder { get; set; } = true;
+    public bool PauseMediaForOtherAudio { get; set; } = true;
+    public int MediaFocusRevision { get; set; }
+    public bool ResumeInterruptedMedia { get; set; } = true;
+    public double MediaResumeDelayMs { get; set; } = 1000;
+    public string AudioInterruptApps { get; set; } = "";
     public double TopOffset { get; set; }
     public int AppearanceRevision { get; set; }
     public bool AutoHide { get; set; }
@@ -48,6 +57,7 @@ public class AppSettings
     public bool ClipboardAutoPaste { get; set; } = true;
     public bool HideInCapture { get; set; } = true;
     public bool HotkeyAltSpace { get; set; } = true;
+    public Dictionary<string, string>? GlobalHotkeys { get; set; }
     public bool AutomaticUpdateChecks { get; set; } = true;
     public string ExcludedApps { get; set; } = "";
     public string AudioOutputId { get; set; } = "";
@@ -57,6 +67,7 @@ public class AppSettings
     public int RecordingFps { get; set; } = 30;
     public bool RecordingHighQuality { get; set; } = true;
     public bool RecordSystemAudio { get; set; } = true;
+    public bool RecordCursor { get; set; } = true;
     public string AiEndpoint { get; set; } = "http://localhost:11434/v1";
     public string AiModel { get; set; } = "";
     public string AiKeyEncrypted { get; set; } = "";
@@ -80,6 +91,17 @@ public class AppSettings
         static double Limit(double value, double min, double max, double fallback) => double.IsFinite(value) ? Math.Clamp(value, min, max) : fallback;
         Scale = Limit(Scale, .8, 2, 1); PillOpacity = Limit(PillOpacity, .45, 1, 1); PanelOpacity = Limit(PanelOpacity, .45, 1, 1);
         HoverCloseDelayMs = Limit(HoverCloseDelayMs, 80, 2000, 220);
+        HoverOpenDelayMs = Limit(HoverOpenDelayMs, 0, 5000, 320);
+        MediaResumeDelayMs = Limit(MediaResumeDelayMs, 0, 10000, 1000);
+        AudioInterruptApps ??= "";
+        if (MediaFocusRevision < 1)
+        {
+            // The first 1.3.0 build shipped this disabled, Telegram-only default.
+            if (!PauseMediaForOtherAudio && AudioInterruptApps.Equals("Telegram", StringComparison.OrdinalIgnoreCase))
+            { PauseMediaForOtherAudio = true; AudioInterruptApps = ""; }
+            MediaFocusRevision = 1;
+        }
+        IslandDisplays = (IslandDisplays ?? []).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         CompactMinWidth = Limit(CompactMinWidth, 160, 360, 190); CompactMaxWidth = Limit(CompactMaxWidth, CompactMinWidth, 700, 700);
         CompactHeight = Limit(CompactHeight, 44, 72, 52); CompactFontSize = Limit(CompactFontSize, 10, 16, 13);
         CompactCornerRadius = Limit(CompactCornerRadius, 0, 24, 18); ExpandedCornerRadius = Limit(ExpandedCornerRadius, 0, 36, 24); ShoulderRadius = Limit(ShoulderRadius, 8, 28, 17);
@@ -94,6 +116,12 @@ public class AppState
     public AppSettings Settings { get; set; } = new();
     [System.Text.Json.Serialization.JsonIgnore]
     public List<ClipEntry> Clipboard { get; set; } = [];
+    // Ordinary history is session-only; pins have an explicit durable representation.
+    public List<ClipEntry> PinnedClipboard
+    {
+        get => Clipboard.Where(x => x.Pinned).ToList();
+        set { Clipboard.RemoveAll(x => x.Pinned); Clipboard.AddRange((value ?? []).Where(x => x.Pinned)); }
+    }
     public List<string> Shelf { get; set; } = [];
     public List<Note> Notes { get; set; } = [new() { Title = "Мои заметки", Text = "" }];
     public List<Reminder> Reminders { get; set; } = [];

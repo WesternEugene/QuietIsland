@@ -283,7 +283,7 @@ internal sealed class AnnotationEditor : ContentControl
 
     private void AddText(Point point)
     {
-        var text = Dialogs.Ask("Подпись на снимке", "Введите текст");
+        var text = Dialogs.Ask("Подпись на снимке", "Введите текст", owner: Window.GetWindow(this));
         if (string.IsNullOrWhiteSpace(text)) return;
         var label = new TextBlock
         {

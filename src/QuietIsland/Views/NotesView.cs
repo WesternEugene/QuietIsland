@@ -50,7 +50,7 @@ public sealed class NotesView : IslandView
         var button = Ui.Button(label, () => { editor.Focus(); command.Execute(null, editor); });
         var text = new TextBlock { Text = label };
         if (command == EditingCommands.ToggleBold) { text.FontWeight = FontWeights.Bold; button.ToolTip = "Полужирный · Ctrl+B"; }
-        else if (command == EditingCommands.ToggleItalic) { text.FontStyle = FontStyles.Italic; button.ToolTip = "Курсив · Ctrl+I"; }
+        else if (command == EditingCommands.ToggleItalic) { text.FontFamily = new FontFamily("Georgia"); text.FontStyle = FontStyles.Italic; button.ToolTip = "Курсив · Ctrl+I"; }
         else if (command == EditingCommands.ToggleUnderline) { text.TextDecorations = TextDecorations.Underline; button.ToolTip = "Подчёркнутый · Ctrl+U"; }
         button.Content = text; button.Padding = new Thickness(8, 4, 8, 4); return button;
     }

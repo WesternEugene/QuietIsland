@@ -11,6 +11,11 @@ public sealed class SystemService(DesktopState state)
     public static void Open(string target)
     {
         if (string.IsNullOrWhiteSpace(target)) return;
+        if (ShellApplications.IsTarget(target))
+        {
+            var launch = new ProcessStartInfo("explorer.exe") { UseShellExecute = true };
+            launch.ArgumentList.Add(target); Process.Start(launch); return;
+        }
         Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
     }
     public static void Reveal(string path)
@@ -50,7 +55,10 @@ public sealed class SystemService(DesktopState state)
     public IReadOnlyList<(string Id, string Name)> AudioDevices(DataFlow flow)
     {
         using var enumerator = new MMDeviceEnumerator();
-        return enumerator.EnumerateAudioEndPoints(flow, DeviceState.Active).Select(x => (x.ID, x.FriendlyName)).ToList();
+        var devices = enumerator.EnumerateAudioEndPoints(flow, DeviceState.Active);
+        var result = new List<(string, string)>();
+        foreach (var device in devices) { using (device) result.Add((device.ID, device.FriendlyName)); }
+        return result;
     }
     private MMDevice Device(DataFlow flow)
     {
@@ -74,13 +82,32 @@ public sealed class SystemService(DesktopState state)
     public static IReadOnlyList<SearchResult> DiscoverApplications()
     {
         var paths = new[] { Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), Environment.GetFolderPath(Environment.SpecialFolder.CommonStartMenu) };
-        var results = new List<SearchResult>();
+        var shortcuts = new Dictionary<string, SearchResult>(StringComparer.OrdinalIgnoreCase);
         foreach (var folder in paths)
         {
-            try { results.AddRange(Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories).Where(x => Path.GetExtension(x) is ".lnk" or ".url").Select(x => new SearchResult(Path.GetFileNameWithoutExtension(x), x, "Приложение"))); }
+            try
+            {
+                var options = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint };
+                foreach (var path in Directory.EnumerateFiles(folder, "*", options).Where(x => Path.GetExtension(x).ToLowerInvariant() is ".lnk" or ".url" or ".appref-ms"))
+                {
+                    var name = Path.GetFileNameWithoutExtension(path);
+                    shortcuts.TryAdd(name, new SearchResult(name, path, "Приложение"));
+                }
+            }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Log.Write("Apps", e); }
         }
-        return results.DistinctBy(x => x.Name, StringComparer.OrdinalIgnoreCase).OrderBy(x => x.Name).ToList();
+        var applications = ShellApplications.Discover();
+        var packagedNames = applications.Where(app => app.IsPackaged).Select(app => app.Result.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var desktopNames = applications.Where(app => !app.IsPackaged).Select(app => app.Result.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var results = new List<SearchResult>();
+        foreach (var app in applications)
+        {
+            // A desktop shortcut preserves its arguments, run-as-admin and reveal
+            // actions. Packaged apps retain their shell activation identity.
+            results.Add(!app.IsPackaged && shortcuts.TryGetValue(app.Result.Name, out var shortcut) ? shortcut : app.Result);
+        }
+        results.AddRange(shortcuts.Values.Where(shortcut => !packagedNames.Contains(shortcut.Name) || desktopNames.Contains(shortcut.Name)));
+        return results.DistinctBy(x => x.Path, StringComparer.OrdinalIgnoreCase).OrderBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
     }
     public static void AutoStart(bool enabled)
     {

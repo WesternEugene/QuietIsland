@@ -1,6 +1,8 @@
 using System.Collections.Specialized;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Windows;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using QuietIsland.Models;
 
@@ -9,10 +11,15 @@ namespace QuietIsland.Services;
 public sealed class ClipboardService(DesktopState state)
 {
     private bool writing;
+    private uint? capturedSequence;
+    private string? imageHash;
+    private ClipEntry? lastImage;
     public event Action? Changed;
     public void Capture()
     {
         if (writing || !state.Data.Settings.ClipboardEnabled) return;
+        var sequence = Native.GetClipboardSequenceNumber();
+        if (capturedSequence == sequence) return;
         if (new[] { "keepass", "bitwarden", "1password", "keeper" }.Any(x => Native.ForegroundProcess().Contains(x, StringComparison.OrdinalIgnoreCase))) return;
         try
         {
@@ -21,11 +28,33 @@ public sealed class ClipboardService(DesktopState state)
             else if (System.Windows.Clipboard.ContainsImage())
             {
                 var bitmap = System.Windows.Clipboard.GetImage();
+                if (bitmap == null) return;
+                var normalized = new FormatConvertedBitmap(bitmap, PixelFormats.Bgra32, null, 0);
+                var stride = checked(normalized.PixelWidth * 4);
+                // Hash bounded scanline blocks instead of allocating an entire 4K/8K image again.
+                var blockHeight = Math.Min(32, normalized.PixelHeight);
+                var pixels = System.Buffers.ArrayPool<byte>.Shared.Rent(checked(stride * blockHeight));
+                string hash;
+                try
+                {
+                    using var digest = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+                    for (var row = 0; row < normalized.PixelHeight; row += blockHeight)
+                    {
+                        var count = Math.Min(blockHeight, normalized.PixelHeight - row);
+                        normalized.CopyPixels(new Int32Rect(0, row, normalized.PixelWidth, count), pixels, stride, 0);
+                        digest.AppendData(pixels.AsSpan(0, count * stride));
+                    }
+                    hash = normalized.PixelWidth + "x" + normalized.PixelHeight + ":" + Convert.ToHexString(digest.GetHashAndReset());
+                }
+                finally { System.Buffers.ArrayPool<byte>.Shared.Return(pixels, clearArray: true); }
+                if (hash == imageHash && ReferenceEquals(state.Data.Clipboard.FirstOrDefault(), lastImage))
+                { capturedSequence = Native.GetClipboardSequenceNumber(); return; }
                 var folder = Path.Combine(state.DirectoryPath, "clipboard"); Directory.CreateDirectory(folder);
                 var path = Path.Combine(folder, Guid.NewGuid().ToString("N") + ".png");
                 var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
                 using (var stream = File.Create(path)) encoder.Save(stream);
                 entry = new() { Kind = "image", ImagePath = path };
+                imageHash = hash; lastImage = entry;
             }
             else if (System.Windows.Clipboard.ContainsText())
             {
@@ -36,6 +65,7 @@ public sealed class ClipboardService(DesktopState state)
                 if (old != null) state.Data.Clipboard.Remove(old);
             }
             if (entry == null) return;
+            capturedSequence = Native.GetClipboardSequenceNumber();
             state.Data.Clipboard.Insert(0, entry);
             var oldEntries = state.Data.Clipboard.Where(x => !x.Pinned).Skip(state.Data.Settings.ClipboardLimit).ToArray();
             foreach (var old in oldEntries) { state.Data.Clipboard.Remove(old); RemoveOwnedImage(old); }
@@ -57,9 +87,10 @@ public sealed class ClipboardService(DesktopState state)
             else System.Windows.Clipboard.SetText(entry.Text);
             if (state.Data.Settings.ClipboardAutoPaste) Native.Paste(pasteTarget);
         }
-        finally { writing = false; }
+        finally { capturedSequence = Native.GetClipboardSequenceNumber(); writing = false; }
     }
-    public void Remove(ClipEntry entry) { state.Data.Clipboard.Remove(entry); RemoveOwnedImage(entry); state.Touch(); Changed?.Invoke(); }
+    public void SetPinned(ClipEntry entry, bool pinned) { entry.Pinned = pinned; state.Save(); state.Touch(); Changed?.Invoke(); }
+    public void Remove(ClipEntry entry) { if (entry.Pinned) return; state.Data.Clipboard.Remove(entry); RemoveOwnedImage(entry); state.Touch(); Changed?.Invoke(); }
     private void RemoveOwnedImage(ClipEntry entry)
     {
         if (entry.ImagePath == null) return;

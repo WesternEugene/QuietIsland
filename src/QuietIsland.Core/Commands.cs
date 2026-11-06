@@ -8,7 +8,7 @@ public static class AnimationPolicy
     public static bool ShouldAnimate(bool hasMedia, bool isPlaying) => hasMedia && isPlaying;
 }
 
-public enum CommandKind { Search, Calculate, Timer, Reminder, Web, Ai, Shell, System }
+public enum CommandKind { Search, Calculate, Timer, Reminder, Web, Ai, Shell, System, SettingsSearch }
 public record ParsedCommand(CommandKind Kind, string Text, string? Result = null, TimeSpan Duration = default);
 
 public static class CommandParser
@@ -16,6 +16,8 @@ public static class CommandParser
     public static ParsedCommand Parse(string input)
     {
         var text = input.Trim();
+        if (text.Length > 0 && (text[0] is 's' or 'S') && (text.Length == 1 || char.IsWhiteSpace(text[1])))
+            return new(CommandKind.SettingsSearch, text[1..].Trim());
         if (text.StartsWith('>')) return new(CommandKind.Shell, text[1..].Trim());
         if (text.StartsWith('?')) return new(CommandKind.Ai, text[1..].Trim());
         if (text.StartsWith("web ", StringComparison.OrdinalIgnoreCase)) return new(CommandKind.Web, text[4..]);

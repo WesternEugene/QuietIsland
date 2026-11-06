@@ -22,6 +22,7 @@ public sealed class LyricsPanel : Grid, IDisposable
     private bool disposed;
     internal int ActiveIndex { get; private set; } = -2;
     public event Action? RetryRequested;
+    public event Action<double>? SeekRequested;
     private static readonly DependencyProperty ScrollOffsetProperty = DependencyProperty.Register("ScrollOffset", typeof(double), typeof(LyricsPanel), new PropertyMetadata(0d, (target, args) => ((LyricsPanel)target).scroll.ScrollToVerticalOffset((double)args.NewValue)));
 
     public LyricsPanel(bool compact = false)
@@ -33,7 +34,7 @@ public sealed class LyricsPanel : Grid, IDisposable
         scroll = new ScrollViewer { Content = lines, CanContentScroll = false, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Padding = compact ? new Thickness(0, 4, 6, 12) : new Thickness(0, 14, 8, 24) };
         scroll.OpacityMask = new LinearGradientBrush(new GradientStopCollection { new(Colors.Transparent, 0), new(Colors.White, .08), new(Colors.White, .86), new(Colors.Transparent, 1) }, new Point(0, 0), new Point(0, 1));
         Grid.SetRow(scroll, 1); Children.Add(scroll);
-        status.FontSize = compact ? 12 : 14; status.LineHeight = compact ? 18 : 22; status.TextWrapping = compact ? TextWrapping.Wrap : TextWrapping.NoWrap; message.Children.Add(status);
+        status.FontSize = compact ? 12 : 14; status.LineHeight = compact ? 18 : 22; status.TextWrapping = TextWrapping.Wrap; message.Children.Add(status);
         retry = Ui.Button("Повторить", () => RetryRequested?.Invoke()); retry.HorizontalAlignment = HorizontalAlignment.Left; retry.Margin = new Thickness(0, compact ? 6 : 12, 0, 0); if (compact) retry.Padding = new Thickness(8, 4, 8, 4); message.Children.Add(retry);
         Grid.SetRow(message, 1); Children.Add(message);
         ClipToBounds = true;
@@ -79,9 +80,13 @@ public sealed class LyricsPanel : Grid, IDisposable
         if (document.Status == LyricsStatus.Synced)
             foreach (var line in document.Lines)
             {
-                var row = Ui.Text(line.Text.Length > 0 ? line.Text : "♪", compact ? 12 : 16, "Muted"); row.Margin = new Thickness(0, 0, 0, compact ? 6 : 10); row.MinHeight = compact ? 20 : 26; row.TextWrapping = compact ? TextWrapping.Wrap : TextWrapping.NoWrap; lines.Children.Add(row); rows.Add(row);
+                var row = Ui.Text(line.Text.Length > 0 ? line.Text : "♪", compact ? 12 : 16, "Muted"); row.MinHeight = compact ? 20 : 26; row.TextWrapping = TextWrapping.Wrap;
+                var button = Ui.Button("", () => SeekRequested?.Invoke(line.Time), tip: "Перемотать на " + Ui.Time(line.Time));
+                button.Content = row; button.Background = Brushes.Transparent; button.Margin = new Thickness(0, 0, 0, compact ? 6 : 10); button.Padding = new Thickness(2, 0, 2, 0); button.HorizontalContentAlignment = HorizontalAlignment.Stretch;
+                AutomationProperties.SetName(button, "Перемотать на " + Ui.Time(line.Time) + " · " + line.Text);
+                lines.Children.Add(button); rows.Add(row);
             }
-        else if (document.Status == LyricsStatus.Plain) { var text = Ui.Text(document.PlainText, compact ? 13 : 17); text.LineHeight = compact ? 20 : 27; text.TextWrapping = compact ? TextWrapping.Wrap : TextWrapping.NoWrap; lines.Children.Add(text); }
+        else if (document.Status == LyricsStatus.Plain) { var text = Ui.Text(document.PlainText, compact ? 13 : 17); text.LineHeight = compact ? 20 : 27; text.TextWrapping = TextWrapping.Wrap; lines.Children.Add(text); }
     }
 
     private void QueueCenter(bool animate)

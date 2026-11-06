@@ -36,8 +36,16 @@ internal static class Program
     private static async Task<int> RunAsync()
     {
         await StartupChecks.RunAsync(CheckAsync);
+        await PolishChecks.RunAsync(CheckAsync);
+        await MediaFocusChecks.RunAsync(CheckAsync);
+        await WeatherReliabilityChecks.RunAsync(CheckAsync);
+        await VisualPolishChecks.RunAsync(CheckAsync);
         await CaptureChecks.RunAsync(CheckAsync);
         await ResourceChecks.RunAsync(CheckAsync);
+        await ShellBehaviorChecks.RunAsync(CheckAsync);
+        await MusicHomeChecks.RunAsync(CheckAsync);
+        await SearchAppChecks.RunAsync(CheckAsync);
+        await SecondaryViewChecks.RunAsync(CheckAsync);
         using var context = new IslandContext(Path.Combine(Path.GetTempPath(), "quiet-island-desktop-checks-" + Guid.NewGuid().ToString("N")));
         await CheckAsync("ffmpeg_prefers_installer_bundle", () =>
         {
@@ -204,8 +212,10 @@ internal static class Program
 
     private static async Task CheckAsync(string name, Func<Task> check)
     {
+        var filter = Environment.GetEnvironmentVariable("QUIET_ISLAND_CHECK_FILTER");
+        if (!string.IsNullOrEmpty(filter) && !name.Contains(filter, StringComparison.OrdinalIgnoreCase)) return;
         try { await check(); Results.Add(new { name, passed = true, error = "" }); }
-        catch (Exception error) { Results.Add(new { name, passed = false, error = error.Message }); }
+        catch (Exception error) { Results.Add(new { name, passed = false, error = error.ToString() }); }
     }
     private static void Require(bool passed, string message) { if (!passed) throw new InvalidOperationException(message); }
     private static DragEventArgs DragEvent(IDataObject data, UIElement target, Point position, RoutedEvent routedEvent)

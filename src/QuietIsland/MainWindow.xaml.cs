@@ -26,6 +26,7 @@ public partial class MainWindow : Window
     private bool? clipped;
     private string selected = "home";
     private DateTime lastInside = DateTime.Now, lastPoll, lastActivity, lastWeather;
+    private DateTime lastCollapsed = DateTime.MinValue;
     private string toast = "";
     private DateTime toastUntil;
     private IslandView? view;
@@ -81,14 +82,14 @@ public partial class MainWindow : Window
         }
         PinButton.Content = Icons.Make("pin"); CloseButton.Content = Icons.Make("close"); DictationButton.Content = Icons.Make("mic");
         InitializeTimerNotice(); ConfigureHeader();
-        Root.MouseEnter += (_, _) => { if (!expanded && !timerAlarm && !overlayBlocked && !DragHeld) hover.Start(); };
+        Root.MouseEnter += (_, _) => { if (!expanded && !HasAlarm && !overlayBlocked && !DragHeld) hover.Start(); };
         Root.MouseLeave += (_, _) => hover.Stop();
-        Compact.MouseLeftButtonUp += async (_, _) => { if (c.Recording.IsRecording) await ToggleRecordingAsync(); else ShowPanel(timerAlarm ? "notes" : selected, false); };
-        Fluid.MouseLeftButtonUp += async (_, _) => { if (!expanded) { if (c.Recording.IsRecording) await ToggleRecordingAsync(); else ShowPanel(timerAlarm ? "notes" : selected, false); } };
+        Compact.MouseLeftButtonUp += async (_, e) => { e.Handled = true; if (c.Recording.IsRecording) await ToggleRecordingAsync(); else ReopenPanel(); };
+        Fluid.MouseLeftButtonUp += async (_, _) => { if (!expanded) { if (c.Recording.IsRecording) await ToggleRecordingAsync(); else ReopenPanel(); } };
         Compact.MouseRightButtonUp += (_, _) => ShowTrayMenu();
         Fluid.MouseRightButtonUp += (_, _) => { if (!expanded) ShowTrayMenu(); };
         Root.MouseWheel += (_, e) => { if (expanded) return; try { c.System.Volume += e.Delta / 120f * .03f; c.Notify($"Громкость {(int)(c.System.Volume * 100)}%"); e.Handled = true; } catch (Exception error) { c.Error(error); } };
-        hover.Tick += (_, _) => { hover.Stop(); if (Root.IsMouseOver && !timerAlarm && !overlayBlocked && !DragHeld) ShowPanel(selected, false); };
+        hover.Tick += (_, _) => { hover.Stop(); if (Root.IsMouseOver && !HasAlarm && !overlayBlocked && !DragHeld) ReopenPanel(); };
         CloseButton.Click += (_, _) => Collapse();
         PinButton.Click += (_, _) => { pinned = !pinned; PinButton.Background = pinned ? Ui.Brush("Hover") : Brushes.Transparent; };
         DictationButton.Click += async (_, _) => await DictateAsync();
@@ -98,27 +99,17 @@ public partial class MainWindow : Window
             var element = e.OriginalSource as DependencyObject;
             popupGuard.Observe(element); keyboardHold = false;
             while (element != null && element is not TextBoxBase && element is not PasswordBox && element is not ComboBox && element is not ListBoxItem && element is not FrameworkElement { Tag: "QuietIsland.FileTile" }) element = ScrollRouting.Parent(element);
-            if (element != null && !snapshot) { Native.ConfigureOverlay(this, true, false, c.Settings.HideInCapture); Activate(); }
+            if (element != null && (!snapshot || mirrorOwner != null)) { Native.ConfigureOverlay(this, true, false, c.Settings.HideInCapture); Activate(); }
         };
         AllowDrop = true;
         InitializeDragRetention();
-        c.Navigate += ShowPanel; c.CollapseRequested += Collapse;
-        c.Updates.Changed += UpdatesChanged;
-        c.Toast += message => Dispatcher.InvokeAsync(() => { toast = message; toastUntil = DateTime.Now.AddSeconds(5); Status.Text = message; UpdateCompact(); });
-        c.Media.Changed += () => Dispatcher.InvokeAsync(() => { c.Lyrics.UpdateTrack(c.Media.Current); Fluid.Update(c.Media); RefreshRuntime(runtimeHidden); UpdateCompact(); if (view is MediaView or HomeView) view.Refresh(); });
-        c.Agents.Broker.Changed += () => Dispatcher.InvokeAsync(() => { if (c.Agents.Broker.Pending.Count > 0) ShowPanel("activity", false); if (view is ActivityView) view.Refresh(); });
-        c.Speech.Partial += text => Dispatcher.InvokeAsync(() => c.Notify(text));
-        c.Recording.Changed += () => Dispatcher.InvokeAsync(() =>
-        {
-            if (c.Recording.LastError is { } error && error != lastRecordingError) { lastRecordingError = error; c.Notify(error); }
-            if (c.Recording.LastError == null) lastRecordingError = null;
-            UpdateCompact(); view?.Refresh();
-        });
+        SubscribeContext();
         SourceInitialized += (_, _) => InitializeNative();
-        timer.Tick += async (_, _) => await TickAsync();
+        timer.Tick += async (_, _) => { if (mirrorOwner != null) MirrorTick(); else await TickAsync(); };
         interaction.Tick += (_, _) => TickInteraction();
         Loaded += async (_, _) =>
         {
+            if (mirrorOwner != null) { ApplySettings(); timer.Start(); interaction.Start(); return; }
             if (snapshot || servicesStarted) return;
             servicesStarted = true;
             ApplySettings(); timer.Start(); interaction.Start();
@@ -128,8 +119,9 @@ public partial class MainWindow : Window
         };
         Closing += (_, e) =>
         {
-            if (c.Recording.IsStarting || c.Recording.IsRecording || c.Recording.IsFinalizing) { e.Cancel = true; c.Notify("Сначала остановите запись: Ctrl+Alt+R"); return; }
+            if (mirrorOwner == null && (c.Recording.IsStarting || c.Recording.IsRecording || c.Recording.IsFinalizing)) { e.Cancel = true; c.Notify("Сначала остановите запись: " + GlobalShortcuts.Label(c.Settings, "recording")); return; }
             IsClosing = true; printScreen?.Dispose();
+            UnsubscribeContext(); CloseMirrors();
             c.Updates.Changed -= UpdatesChanged;
             c.State.Changed -= AppStateChanged;
             timerSound.Dispose();
@@ -142,7 +134,7 @@ public partial class MainWindow : Window
     }
     private void InitializeNative()
     {
-        if (snapshot) return;
+        if (snapshot && mirrorOwner == null) return;
         hwnd = HwndSource.FromHwnd(new WindowInteropHelper(this).Handle); hwnd.AddHook(Hook);
         try
         {
@@ -158,8 +150,10 @@ public partial class MainWindow : Window
             Native.GetWindowThreadProcessId(Native.GetForegroundWindow(), out var process);
             if (expanded && !DragHeld && !popupGuard.IsOpen && !Windows.Dialogs.IsOpen && process != Environment.ProcessId) HandleOutsidePress();
         });
-        Native.AddClipboardFormatListener(hwnd.Handle); RegisterHotkeys();
-        try { printScreen = new(); printScreen.Requested += region => Dispatcher.BeginInvoke(async () => { if (region) await ScreenshotAsync("shot"); else await ScreenshotDesktopAsync(); }); } catch (Exception e) { Log.Write("Print Screen", e); }
+        if (mirrorOwner != null) { Native.ConfigureOverlay(this, false, c.Settings.ClickThrough, c.Settings.HideInCapture); return; }
+        Native.AddClipboardFormatListener(hwnd.Handle);
+        try { printScreen = new(); printScreen.Requested += id => Dispatcher.BeginInvoke(() => InvokeShortcut(id)); } catch (Exception e) { Log.Write("Print Screen", e); }
+        RegisterHotkeys();
         Native.ConfigureOverlay(this, false, c.Settings.ClickThrough, c.Settings.HideInCapture);
         using (var stream = System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/Assets/island.ico"))!.Stream) trayArtwork = new System.Drawing.Icon(stream);
         tray = new System.Windows.Forms.NotifyIcon { Icon = trayArtwork, Visible = true, Text = "Quiet Island" };
@@ -186,6 +180,7 @@ public partial class MainWindow : Window
     {
         hiddenByUser = hidden;
         if (!snapshot) { if (hidden) Hide(); else Show(); }
+        foreach (var mirror in mirrors.Values) { mirror.hiddenByUser = hidden; if (hidden) mirror.Hide(); else mirror.Show(); }
         if (!snapshot) UpdateRuntimeVisibility(DateTime.Now);
     }
     private IntPtr Hook(IntPtr h, int message, IntPtr w, IntPtr l, ref bool handled)
@@ -193,7 +188,12 @@ public partial class MainWindow : Window
         if (message == Native.WM_CLIPBOARDUPDATE) c.Clipboard.Capture();
         if (message != Native.WM_HOTKEY) return IntPtr.Zero;
         handled = true;
-        switch (w.ToInt32())
+        InvokeShortcut(w.ToInt32());
+        return IntPtr.Zero;
+    }
+    private void InvokeShortcut(int id)
+    {
+        switch (id)
         {
             case 1: hiddenByUser = false; Show(); ShowPanel("search", true); break;
             case 2: ShowPanel("clipboard", false); break;
@@ -201,43 +201,47 @@ public partial class MainWindow : Window
             case 4: _ = ScreenshotAsync("shot"); break;
             case 5: _ = ToggleRecordingAsync(); break;
             case 6: _ = DictateAsync(); break;
+            case 7: _ = ScreenshotDesktopAsync(); break;
+            case 8: _ = ScreenshotAsync("shot"); break;
             default:
-                var index = w.ToInt32() - 100;
+                var index = id - 100;
                 if (index >= 0 && index < c.State.Data.Launcher.Count) { try { SystemService.Open(c.State.Data.Launcher[index].Target); } catch (Exception e) { c.Error(e); } }
                 break;
         }
-        return IntPtr.Zero;
     }
+    private readonly Dictionary<string, string> shortcutErrors = new();
+    public IReadOnlyDictionary<string, string> ShortcutErrors => shortcutErrors;
+    internal void InvalidateHotkeys() => hotkeyKey = "";
     private void RegisterHotkeys()
     {
-        if (hwnd == null) return;
-        var signature = c.Settings.HotkeyAltSpace + "|" + string.Join(";", c.State.Data.Launcher.Select(x => x.Target + ":" + x.Hotkey));
+        if (hwnd == null || mirrorOwner != null) return;
+        var bindings = GlobalShortcuts.Bindings(c.Settings);
+        var signature = string.Join(";", GlobalShortcuts.Definitions.Select(x => x.Key + "=" + bindings.GetValueOrDefault(x.Key, ""))) + "|" + string.Join(";", c.State.Data.Launcher.Select(x => x.Target + ":" + x.Hotkey));
         if (signature == hotkeyKey) return; hotkeyKey = signature;
         foreach (var id in registered) Native.UnregisterHotKey(hwnd.Handle, id); registered.Clear();
-        bool Register(int id, uint mods, uint key) { var ok = Native.RegisterHotKey(hwnd.Handle, id, mods | 0x4000, key); if (ok) registered.Add(id); return ok; }
-        var alt = c.Settings.HotkeyAltSpace && Register(1, 1, 0x20);
-        if (!alt) Register(1, 1 | 2, 0x20);
-        HotkeyLabel.Text = alt ? "Alt + Space" : "Ctrl + Alt + Space";
-        Register(2, 1 | 2, 0x56); Register(3, 1 | 2, 0x4E); Register(4, 1 | 2, 0x53); Register(5, 1 | 2, 0x52); Register(6, 1 | 2, 0x44);
+        shortcutErrors.Clear(); var seen = new HashSet<ShortcutChord>(); var printBindings = new Dictionary<uint, int>();
+        void Register(int id, string key, string label, string shortcut)
+        {
+            if (string.IsNullOrWhiteSpace(shortcut)) return;
+            if (!ShortcutChord.TryParse(shortcut, out var chord)) { shortcutErrors[key] = label + ": проверьте формат сочетания"; return; }
+            if (!seen.Add(chord)) { shortcutErrors[key] = label + ": сочетание уже назначено другому действию"; return; }
+            if (chord.VirtualKey == 0x2C && printScreen != null) printBindings.Add(chord.Modifiers, id);
+            else if (Native.RegisterHotKey(hwnd.Handle, id, chord.Modifiers | 0x4000, chord.VirtualKey)) registered.Add(id);
+            else shortcutErrors[key] = label + ": " + shortcut + " занято или недоступно. Выберите другое сочетание в настройках.";
+        }
+        foreach (var definition in GlobalShortcuts.Definitions)
+            Register(definition.Id, definition.Key, definition.Title, bindings.GetValueOrDefault(definition.Key, ""));
         for (var i = 0; i < c.State.Data.Launcher.Count; i++)
         {
-            var shortcut = c.State.Data.Launcher[i].Hotkey;
-            if (string.IsNullOrWhiteSpace(shortcut)) continue;
-            try
-            {
-                uint mods = 0; Key key = Key.None;
-                foreach (var part in shortcut.Split('+', StringSplitOptions.TrimEntries))
-                    if (part.Equals("Ctrl", StringComparison.OrdinalIgnoreCase)) mods |= 2;
-                    else if (part.Equals("Alt", StringComparison.OrdinalIgnoreCase)) mods |= 1;
-                    else if (part.Equals("Shift", StringComparison.OrdinalIgnoreCase)) mods |= 4;
-                    else key = (Key)new KeyConverter().ConvertFromString(part)!;
-                if (mods != 0 && key != Key.None) Register(100 + i, mods, (uint)KeyInterop.VirtualKeyFromKey(key));
-            }
-            catch { }
+            var item = c.State.Data.Launcher[i]; Register(100 + i, "launcher:" + i, item.Name, item.Hotkey);
         }
+        printScreen?.SetBindings(printBindings);
+        HotkeyLabel.Text = GlobalShortcuts.Label(c.Settings, "search");
+        if (shortcutErrors.Count > 0) c.Notify(string.Join("\n", shortcutErrors.Values));
     }
     public void ShowPanel(string tab, bool focus)
     {
+        if (tab == "media") tab = "home";
         if (tab.StartsWith("settings", StringComparison.Ordinal))
         {
             ShowSettingsPage(tab switch { "settings:ai" => "Искусственный интеллект", "settings:recording" => "Запись и звук", "settings:speech" => "Диктовка", _ => null }); return;
@@ -270,30 +274,43 @@ public partial class MainWindow : Window
         if (!wasExpanded && !reversingContent) { Panel.BeginAnimation(OpacityProperty, null); Panel.Opacity = 0; }
         else Panel.Opacity = Math.Clamp(c.Settings.PanelOpacity, .45, 1);
         lastInside = DateTime.Now;
-        var height = tab == "home" ? 376d : 430d;
+        var height = ExpandedShellHeight;
+        Root.Height = Math.Max(560, height + 12);
         Panel.Height = height - 44;
         if (!wasExpanded || Math.Abs(Fluid.VisualHeight - height) > .1) AnimateShell(true, preserveContent: reversingContent);
-        if (!snapshot) { Show(); ResizeAndPosition(); Native.ConfigureOverlay(this, focus, false, c.Settings.HideInCapture); if (focus) { Activate(); Dispatcher.BeginInvoke(() => view?.FocusInput(), DispatcherPriority.Input); } }
+        if (!snapshot || mirrorOwner != null) { Show(); ResizeAndPosition(); Native.ConfigureOverlay(this, focus, false, c.Settings.HideInCapture); if (focus) { Activate(); Dispatcher.BeginInvoke(() => view?.FocusInput(), DispatcherPriority.Input); } }
         view.Refresh();
         lastPoll = DateTime.MinValue; RefreshRuntime(false);
     }
     public void Collapse()
     {
         if (!expanded) return;
+        lastCollapsed = DateTime.UtcNow;
         expanded = pinned = keyboardHold = fullscreenOverride = false; PinButton.Background = Brushes.Transparent; Panel.IsHitTestVisible = false;
         Compact.Visibility = Visibility.Visible; Compact.Opacity = Math.Clamp(c.Settings.PillOpacity, .45, 1);
         AnimateShell(false);
-        if (!snapshot)
+        if (!snapshot || mirrorOwner != null)
         {
-            Native.ConfigureOverlay(this, false, c.Settings.ClickThrough && !timerAlarm, c.Settings.HideInCapture);
+            Native.ConfigureOverlay(this, false, c.Settings.ClickThrough && !HasAlarm, c.Settings.HideInCapture);
             if (Native.GetForegroundWindow() == new WindowInteropHelper(this).Handle && Native.IsWindow(c.PasteTarget)) Native.SetForegroundWindow(c.PasteTarget);
         }
         UpdateCompact();
     }
     internal void HandleOutsidePress() => Collapse();
+    private void ReopenPanel() => ShowPanel(HasAlarm ? "notes" : !expanded && (DateTime.UtcNow - lastCollapsed).TotalSeconds >= 5 ? "home" : selected, false);
+    private double ExpandedShellHeight => (selected == "home" ? (homeCache?.PreferredBodyHeight ?? 298) + 90 : 430) + (HasAlarm ? 50 : 0);
+    private void ResizeExpandedContent()
+    {
+        if (!expanded) return;
+        var height = ExpandedShellHeight;
+        Root.Height = Math.Max(560, height + 12);
+        if (Math.Abs(Panel.Height - (height - 44)) < .1) return;
+        Panel.Height = height - 44; AnimateShell(true, preserveContent: true);
+    }
     public void ShowSettings() => ShowSettingsPage();
     private void ShowSettingsPage(string? category = null)
     {
+        if (mirrorOwner != null) { mirrorOwner.ShowSettingsPage(category); return; }
         Collapse();
         if (settingsWindow == null)
         {
@@ -308,14 +325,14 @@ public partial class MainWindow : Window
     {
         TimeSpan Duration(double ms) => TimeSpan.FromMilliseconds(ms / c.Settings.AnimationSpeed);
         var revision = ++transition;
-        var width = open ? 744d : compactWidth; var height = open ? selected == "home" ? 376d : 430d : compactHeight;
+        var width = open ? 744d : compactWidth; var height = open ? ExpandedShellHeight : compactHeight;
         void Finished()
         {
             if (revision != transition) return;
             if (!open) { Panel.Visibility = Visibility.Collapsed; ReleaseView(); Body.Content = null; }
             else Compact.Visibility = Visibility.Collapsed;
         }
-        var animate = force || (!snapshot || NativeMotionProbe) && IsLoaded && !overlayBlocked;
+        var animate = force || (!snapshot || mirrorOwner != null || NativeMotionProbe) && IsLoaded && !overlayBlocked;
         motion.To(width, height, animate, Finished);
         if (!animate)
         {
@@ -344,21 +361,23 @@ public partial class MainWindow : Window
         if (homeCache != null && key == homeCacheKey) return homeCache;
         var replacingActive = ReferenceEquals(view, homeCache) && homeCache != null;
         homeCache?.Dispose(); homeCacheKey = key; homeCache = new(c, this);
+        homeCache.PreferredBodyHeightChanged += ResizeExpandedContent;
         // Prepare templates before a pointer-triggered transition, once per changed configuration.
-        homeCache.Measure(new Size(680, 286)); homeCache.Arrange(new Rect(0, 0, 680, 286)); homeCache.UpdateLayout();
-        if (replacingActive) { view = homeCache; Body.Content = homeCache; }
+        homeCache.Measure(new Size(680, homeCache.PreferredBodyHeight)); homeCache.Arrange(new Rect(0, 0, 680, homeCache.PreferredBodyHeight)); homeCache.UpdateLayout();
+        if (replacingActive) { view = homeCache; Body.Content = homeCache; ResizeExpandedContent(); }
         return homeCache;
     }
     public void ApplySettings()
     {
-        c.Settings.NormalizeAppearance(); ApplyTheme(); Scale.ScaleX = Scale.ScaleY = c.Settings.Scale; RegisterHotkeys(); ConfigureHeader();
+        c.Settings.NormalizeAppearance(); hover.Interval = TimeSpan.FromMilliseconds(Math.Max(1, c.Settings.HoverOpenDelayMs)); ApplyTheme(); Scale.ScaleX = Scale.ScaleY = c.Settings.Scale; RegisterHotkeys(); ConfigureHeader();
         motion.Speed = c.Settings.AnimationSpeed; Fluid.ApplyAppearance(c.Settings);
         Compact.Height = c.Settings.CompactHeight - 8; ClockText.FontSize = c.Settings.CompactFontSize; CompactTitle.FontSize = c.Settings.CompactFontSize - 1;
         compactMeasureKey = ""; UpdateCompact();
         ApplyVisualOpacity();
         if (!expanded) motion.To(compactWidth, compactHeight, (!snapshot || NativeMotionProbe) && IsLoaded, keepCompletion: true);
-        if (!snapshot) PrepareHome();
-        if (!snapshot || NativeMotionProbe) { Native.ConfigureOverlay(this, expanded, !expanded && c.Settings.ClickThrough && !timerAlarm, c.Settings.HideInCapture); if (snapshot) ResizeAndPosition(); else UpdateRuntimeVisibility(DateTime.Now); }
+        if (!snapshot || mirrorOwner != null) PrepareHome();
+        if (!snapshot || mirrorOwner != null || NativeMotionProbe) { Native.ConfigureOverlay(this, expanded, !expanded && c.Settings.ClickThrough && !HasAlarm, c.Settings.HideInCapture); if (snapshot && mirrorOwner == null) ResizeAndPosition(); else UpdateRuntimeVisibility(DateTime.Now); }
+        if (!snapshot) ReconcileMirrors();
     }
     private void ApplyTheme()
     {
@@ -377,11 +396,11 @@ public partial class MainWindow : Window
         settingsWindow?.ApplyTheme();
         Fluid.InvalidateVisual();
     }
-    private System.Windows.Forms.Screen Screen => System.Windows.Forms.Screen.AllScreens[Math.Clamp(c.Settings.Monitor, 0, System.Windows.Forms.Screen.AllScreens.Length - 1)];
+    private System.Windows.Forms.Screen Screen => ResolveScreen();
     private void ResizeAndPosition(bool hidden = false)
     {
         var bounds = Screen.Bounds; var dpi = Native.MonitorDpi(Screen);
-        var next = QuietIsland.Core.OverlayLayout.Calculate(bounds.Left, bounds.Top, bounds.Width, bounds.Height, dpi.X, dpi.Y, c.Settings.Scale, c.Settings.TopOffset, true);
+        var next = QuietIsland.Core.OverlayLayout.CalculateSize(bounds.Left, bounds.Top, bounds.Width, bounds.Height, dpi.X, dpi.Y, c.Settings.Scale, c.Settings.TopOffset, 744, Root.Height);
         Scale.ScaleX = Scale.ScaleY = next.Scale;
         Width = next.Width / dpi.X; Height = next.Height / dpi.Y;
         var handle = new WindowInteropHelper(this).Handle;
@@ -405,7 +424,7 @@ public partial class MainWindow : Window
         if ((now - lastWeather).TotalMinutes >= 15) { lastWeather = now; _ = c.Weather.RefreshAsync(); }
         if ((now - lastPoll).TotalSeconds < (runtimeHidden ? 5 : economyMode && !expanded ? 3 : 1) || pollBusy || starting) return;
         pollBusy = true; lastPoll = now;
-        try { await c.Media.PollAsync(); view?.Refresh(); } catch (Exception e) { Log.Write("Refresh", e); } finally { pollBusy = false; }
+        try { await c.Media.PollAsync(); if (view is not HomeView) view?.Refresh(); } catch (Exception e) { Log.Write("Refresh", e); } finally { pollBusy = false; }
     }
     private void TickInteraction()
     {
@@ -427,9 +446,7 @@ public partial class MainWindow : Window
     private void Alarm(string title, QuietIsland.Core.Reminder? reminder)
     {
         if (reminder == null) { TimerFinished(title); return; }
-        if (snapshot) { c.Notify(title); return; }
-        System.Media.SystemSounds.Exclamation.Play();
-        var alarm = new Windows.AlertWindow(title, () => { if (reminder != null) { reminder.Completed = false; reminder.Due = DateTimeOffset.Now.AddMinutes(10); c.State.Touch(); } else c.StartTimer(TimeSpan.FromMinutes(10)); }); alarm.Show();
+        ReminderFinished(reminder);
     }
     private void UpdateCompact()
     {
@@ -471,15 +488,17 @@ public partial class MainWindow : Window
             }
         }
         ToastBanner.Visibility = expanded && message.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
-        DictationButton.ToolTip = c.Speech.IsTranscribing ? "Распознаю…" : c.Speech.IsListening ? "Остановить диктовку" : c.Speech.IsConfigured ? "Диктовка · Ctrl+Alt+D" : "Диктовка отключена · настройте API или включите локальный движок в настройках";
+        DictationButton.ToolTip = c.Speech.IsTranscribing ? "Распознаю…" : c.Speech.IsListening ? "Остановить диктовку" : c.Speech.IsConfigured ? "Диктовка · " + GlobalShortcuts.Label(c.Settings, "dictation") : "Диктовка отключена · настройте API или включите локальный движок в настройках";
         DictationButton.Background = c.Speech.IsListening ? Ui.Brush("Hover") : Brushes.Transparent;
         DictationButton.IsEnabled = !c.Speech.IsTranscribing && (c.Speech.IsListening || c.Speech.IsConfigured);
-        CompactNormal.Visibility = timerAlarm ? Visibility.Collapsed : Visibility.Visible;
-        CompactAlarm.Visibility = timerAlarm ? Visibility.Visible : Visibility.Collapsed;
-        if (timerAlarm)
+        CompactNormal.Visibility = HasAlarm ? Visibility.Collapsed : Visibility.Visible;
+        CompactAlarm.Visibility = HasAlarm ? Visibility.Visible : Visibility.Collapsed;
+        if (HasAlarm)
         {
-            compactMeasureKey = ""; Compact.ToolTip = "Таймер завершён · повторить или закрыть";
-            SetCompactSize(Math.Max(330, c.Settings.CompactMinWidth), Math.Max(72, c.Settings.CompactHeight + 16));
+            compactMeasureKey = ""; Compact.ToolTip = reminderAlarms.Count > 0 ? reminderAlarms.Peek().Title + " · напомнить через 10 минут или закрыть" : "Таймер завершён · повторить или закрыть";
+            CompactAlarmTitle.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            var alarmWidth = reminderAlarms.Count > 0 ? Math.Clamp(CompactAlarmTitle.DesiredSize.Width + 280, 400, 700) : 330;
+            SetCompactSize(Math.Max(alarmWidth, c.Settings.CompactMinWidth), Math.Max(72, c.Settings.CompactHeight + 16));
             return;
         }
         var measureKey = icon + "|" + ClockText.Text + "|" + CompactTimer.Visibility + CompactTimerText.Text + coverVisible + CompactTitle.Text + "\n" + CompactSubtitle.Text + "\n" + CompactWeather.Text + inputState;
@@ -502,7 +521,7 @@ public partial class MainWindow : Window
         var changed = Math.Abs(width - compactWidth) > 1 || Math.Abs(height - compactHeight) > .1;
         compactWidth = width; compactHeight = height; Compact.Width = width - 34; Compact.Height = height - 8;
         UpdatePanelClip();
-        if (changed && !expanded) motion.To(width, height, (!snapshot || NativeMotionProbe) && IsLoaded, keepCompletion: true);
+        if (changed && !expanded) motion.To(width, height, (!snapshot || mirrorOwner != null || NativeMotionProbe) && IsLoaded, keepCompletion: true);
     }
     public async Task ScreenshotAsync(string mode)
     {
@@ -528,7 +547,10 @@ public partial class MainWindow : Window
         {
             Collapse();
             if (snapshot && SelectionForChecks != null) return await SelectionForChecks(color);
-            await Task.Delay(270); return await c.Capture.SelectAsync(color, annotate);
+            using var cancellation = new CancellationTokenSource();
+            using var escape = new CaptureEscape(() => cancellation.Cancel());
+            try { await Task.Delay(270, cancellation.Token); return await c.Capture.SelectAsync(color, annotate, cancellation.Token); }
+            catch (OperationCanceledException) { return null; }
         }
         finally { selectionBusy = false; }
     }
@@ -545,7 +567,7 @@ public partial class MainWindow : Window
         var path = await c.Capture.SaveAndCopyAsync(image);
         c.Notify("Снимок сохранён и скопирован: " + Path.GetFileName(path));
     }
-    public async Task ToggleRecordingAsync(bool gif = false)
+    public async Task ToggleRecordingAsync(bool gif = false, bool fullScreen = false, bool allScreens = false)
     {
         if (recordCommandBusy) { c.Notify("Запись уже запускается или сохраняется. Завершите выбор области; Esc — отмена."); return; }
         recordCommandBusy = true;
@@ -553,7 +575,10 @@ public partial class MainWindow : Window
         {
             if (c.Recording.IsStarting || c.Recording.IsFinalizing) { c.Notify(c.Recording.IsStarting ? "Запись запускается…" : "Запись сохраняется…"); return; }
             if (c.Recording.IsRecording) { var path = await c.Recording.StopAsync(); if (path != null) { var files = new System.Collections.Specialized.StringCollection { path }; System.Windows.Clipboard.SetFileDropList(files); c.Notify("Запись сохранена и скопирована как файл"); ShowPanel("home", false); } return; }
-            var region = await SelectRegionAsync(); if (region != null) { await c.Recording.StartAsync(region.Bounds, gif); c.Notify(c.Recording.Warning ?? "Запись началась · нажмите чёлку или Ctrl+Alt+R для остановки"); }
+            System.Drawing.Rectangle? bounds;
+            if (fullScreen) { Collapse(); await Task.Delay(300); bounds = allScreens ? System.Windows.Forms.SystemInformation.VirtualScreen : Screen.Bounds; }
+            else bounds = (await SelectRegionAsync())?.Bounds;
+            if (bounds is { } area) { await c.Recording.StartAsync(area, gif); c.Notify(c.Recording.Warning ?? "Запись началась · нажмите чёлку или " + GlobalShortcuts.Label(c.Settings, "recording") + " для остановки"); }
         }
         catch (Exception e) { c.Error(e); }
         finally { recordCommandBusy = false; }
@@ -563,7 +588,7 @@ public partial class MainWindow : Window
         if (c.Speech.IsTranscribing) { c.Notify("Предыдущая диктовка ещё распознаётся"); return; }
         try
         {
-            if (!c.Speech.IsListening) { c.Speech.Start(); c.Notify("Слушаю · Ctrl+Alt+D — закончить"); }
+            if (!c.Speech.IsListening) { c.Speech.Start(); c.Notify("Слушаю · " + GlobalShortcuts.Label(c.Settings, "dictation") + " — закончить"); }
             else { c.Notify("Распознавание…"); var text = await c.Speech.StopAsync(); if (text.Length > 0) { System.Windows.Clipboard.SetText(text); c.Notify("Диктовка скопирована"); } else c.Notify("Речь не распознана"); }
             UpdateCompact();
         }

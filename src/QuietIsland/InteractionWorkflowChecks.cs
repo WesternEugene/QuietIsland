@@ -15,7 +15,7 @@ namespace QuietIsland;
 /// <summary>Isolated launcher, timer and clipboard checks; never starts services or controls VPN.</summary>
 internal static class InteractionWorkflowChecks
 {
-    private static readonly string[] DefaultTargets = ["explorer.exe", "notepad.exe", "powershell.exe", "calc.exe", "ms-settings:"];
+    private static readonly string[] DefaultTargets = ["explorer.exe", "notepad.exe", "calc.exe", "ms-settings:"];
 
     public static async Task<object> RunAsync(string directory)
     {
@@ -38,11 +38,12 @@ internal static class InteractionWorkflowChecks
         results["startupRemovesOwnedClipboardImages"] = !File.Exists(staleImage) && File.Exists(shelfFile) && File.Exists(otherImage);
         results["startupPreservesOtherData"] = c.State.Data.Shelf.Contains(shelfFile) && c.State.Data.Notes.Any(x => x.Text == "keep note") && c.State.Data.Launcher.Any(x => x.Target == "https://example.org");
         results["defaultLaunchersMigrateWithoutDuplicates"] = DefaultTargets.All(target => c.State.Data.Launcher.Count(x => x.Target.Equals(target, StringComparison.OrdinalIgnoreCase)) == 1);
-        c.State.Data.Clipboard.Add(new ClipEntry { Text = "session-only fixture", Pinned = true }); c.State.Save();
+        c.State.Data.Clipboard.Add(new ClipEntry { Text = "pinned fixture", Pinned = true });
+        c.State.Data.Clipboard.Add(new ClipEntry { Text = "session-only fixture" }); c.State.Save();
         using (var json = JsonDocument.Parse(File.ReadAllText(Path.Combine(directory, "state.json"))))
-            results["clipboardIsNotPersisted"] = !json.RootElement.TryGetProperty("Clipboard", out _);
+            results["onlyPinnedClipboardIsPersisted"] = !json.RootElement.TryGetProperty("Clipboard", out _) && json.RootElement.GetProperty("PinnedClipboard").GetArrayLength() == 1;
         var reopened = new DesktopState(directory);
-        results["reopenedClipboardStartsEmpty"] = reopened.Data.Clipboard.Count == 0;
+        results["reopenedClipboardRetainsOnlyPins"] = reopened.Data.Clipboard.Count == 1 && reopened.Data.Clipboard[0].Pinned && reopened.Data.Clipboard[0].Text == "pinned fixture";
         reopened.Data.Launcher.RemoveAll(x => x.Target.Equals("explorer.exe", StringComparison.OrdinalIgnoreCase)); reopened.Save();
         var afterRemoval = new DesktopState(directory);
         results["removedDefaultStaysRemovedAfterRestart"] = !afterRemoval.Data.Launcher.Any(x => x.Target.Equals("explorer.exe", StringComparison.OrdinalIgnoreCase)) && afterRemoval.Data.Launcher.Any(x => x.Target == "https://example.org");

@@ -15,6 +15,7 @@ public sealed class SelectionWindow : Window
     private readonly BitmapSource image;
     private readonly ScreenRectangle screen;
     private readonly IReadOnlyList<ScreenRectangle> windows;
+    private readonly IReadOnlyList<ScreenRectangle> snapAreas;
     private readonly bool color, annotate;
     private readonly Canvas overlay = new() { Background = Brushes.Transparent, ClipToBounds = true };
     private readonly System.Windows.Shapes.Path dim = new() { Fill = new SolidColorBrush(Color.FromArgb(95, 0, 0, 0)), IsHitTestVisible = false };
@@ -29,13 +30,21 @@ public sealed class SelectionWindow : Window
     private Point? start;
     private Int32Rect region, pressedWindow, lastWindow;
     private bool dragged;
+    private CaptureEscape? escape;
     private bool IsSelecting => editor?.IsSelecting != false;
     public CaptureResult? Result { get; private set; }
 
-    public SelectionWindow(BitmapSource source, ScreenRectangle bounds, bool pickColor, bool annotate = false, IReadOnlyList<ScreenRectangle>? windows = null)
+    public SelectionWindow(BitmapSource source, ScreenRectangle bounds, bool pickColor, bool annotate = false, IReadOnlyList<ScreenRectangle>? windows = null, IReadOnlyList<ScreenRectangle>? snapAreas = null)
     {
         image = source; screen = bounds; color = pickColor; this.annotate = annotate && !pickColor;
-        this.windows = windows ?? (pickColor ? [] : CaptureWindows.Snapshot());
+        if (windows == null && !pickColor)
+        {
+            var targets = CaptureWindows.SnapshotTargets();
+            this.windows = targets.Select(x => x.Bounds).ToArray();
+            this.snapAreas = targets.Select(x => x.ActivationBounds).ToArray();
+        }
+        else { this.windows = windows ?? []; this.snapAreas = snapAreas ?? this.windows; }
+        if (this.snapAreas.Count != this.windows.Count) throw new ArgumentException("Each window needs a corresponding activation area.", nameof(snapAreas));
         Title = pickColor ? "Выбрать цвет" : "Quiet Island · Снимок экрана";
         WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.NoResize; Topmost = true; ShowInTaskbar = false; Cursor = Cursors.Cross;
         Left = SystemParameters.VirtualScreenLeft; Top = SystemParameters.VirtualScreenTop; Width = SystemParameters.VirtualScreenWidth; Height = SystemParameters.VirtualScreenHeight;
@@ -71,7 +80,7 @@ public sealed class SelectionWindow : Window
         loupe.Child = Ui.Stack(zoom, colorText); overlay.Children.Add(loupe); Canvas.SetZIndex(loupe, 11);
         RenderOptions.SetBitmapScalingMode(zoom, BitmapScalingMode.NearestNeighbor); Content = root;
         SourceInitialized += (_, _) => Native.SetWindowPos(new System.Windows.Interop.WindowInteropHelper(this).Handle, new IntPtr(-1), bounds.Left, bounds.Top, bounds.Width, bounds.Height, 0x0040);
-        Loaded += (_, _) => { PlaceChrome(); Move(Mouse.GetPosition(overlay)); };
+        Loaded += (_, _) => { InputManager.Current.PreProcessInput += SelectionInput; try { escape = new CaptureEscape(() => Dispatcher.BeginInvoke(Cancel, System.Windows.Threading.DispatcherPriority.Input)); } catch (System.ComponentModel.Win32Exception e) { Log.Write("Capture Escape", e); } Activate(); Focus(); Keyboard.Focus(this); PlaceChrome(); Move(Mouse.GetPosition(overlay)); };
         SizeChanged += (_, _) => { UpdateFrame(); PlaceChrome(); };
         PreviewKeyDown += OnKeyDown;
         MouseRightButtonDown += (_, e) => { Cancel(); e.Handled = true; };
@@ -85,22 +94,26 @@ public sealed class SelectionWindow : Window
         overlay.MouseLeftButtonUp += (_, e) => { if (IsSelecting) Up(e.GetPosition(overlay)); };
         overlay.LostMouseCapture += (_, _) => { if (!overlay.IsMouseCaptured) start = null; };
         Deactivated += (_, _) => editor?.CancelGesture();
-        Closed += (_, _) => { editor?.CancelGesture(); if (overlay.IsMouseCaptured) overlay.ReleaseMouseCapture(); };
+        Closed += (_, _) => { escape?.Dispose(); InputManager.Current.PreProcessInput -= SelectionInput; editor?.CancelGesture(); if (overlay.IsMouseCaptured) overlay.ReleaseMouseCapture(); };
         UpdateFrame();
     }
 
     private void OnKeyDown(object sender, KeyEventArgs e)
     {
+        if (e.Key == Key.Escape) { editor?.CancelGesture(); Cancel(); e.Handled = true; return; }
         if (editor?.IsOptionsOpen == true) return;
         if (e.Key == Key.Z && Keyboard.Modifiers == ModifierKeys.Control && editor != null)
         { editor.Undo(); e.Handled = true; }
-        else if (e.Key == Key.Escape)
-        {
-            if (editor?.CancelGesture() != true) Cancel();
-            e.Handled = true;
-        }
         else if (e.Key == Key.Space && annotate && start == null)
         { editor?.SetTool("select"); e.Handled = true; }
+    }
+
+    private void SelectionInput(object sender, PreProcessInputEventArgs e)
+    {
+        // Tool popups have their own HWND and can consume Escape before it
+        // reaches the selection window's routed PreviewKeyDown handler.
+        if (IsVisible && e.StagingItem.Input is KeyEventArgs { Key: Key.Escape } key && key.RoutedEvent == Keyboard.PreviewKeyDownEvent)
+        { key.Handled = true; e.Cancel(); Dispatcher.BeginInvoke(Cancel, System.Windows.Threading.DispatcherPriority.Input); }
     }
 
     private (int X, int Y) Pixel(Point point, bool edge = false)
@@ -126,9 +139,12 @@ public sealed class SelectionWindow : Window
     {
         var pixel = Pixel(point);
         var desktop = new System.Drawing.Point(screen.Left + (int)(pixel.X * screen.Width / (double)image.PixelWidth), screen.Top + (int)(pixel.Y * screen.Height / (double)image.PixelHeight));
-        foreach (var window in windows)
+        for (var index = 0; index < windows.Count; index++)
         {
+            var window = windows[index];
             if (!window.Contains(desktop)) continue;
+            // A maximized client area blocks obscured windows without snapping itself.
+            if (!snapAreas[index].Contains(desktop)) return default;
             var clipped = ScreenRectangle.Intersect(window, screen);
             if (clipped.Width < 2 || clipped.Height < 2) return default;
             var left = (int)Math.Floor((clipped.Left - screen.Left) * image.PixelWidth / (double)screen.Width);
@@ -252,5 +268,21 @@ public sealed class SelectionWindow : Window
         if (region.Width < (color ? 1 : 2) || region.Height < (color ? 1 : 2) || start != null || !IsSelecting || editor?.HasActiveGesture == true) return;
         Result = CreateResult(); DialogResult = true;
     }
-    private void Cancel() => DialogResult = false;
+    private bool cancelQueued;
+    internal void CancelSelection() => Cancel();
+    private void Cancel()
+    {
+        if (cancelQueued || !IsVisible) return;
+        editor?.CancelGesture(); Result = null;
+        var dialogs = OwnedWindows.Cast<Window>().Where(x => x.IsVisible).ToArray();
+        if (dialogs.Length > 0)
+        {
+            // Unwind the inner ShowDialog before closing its modal owner.
+            cancelQueued = true;
+            foreach (var dialog in dialogs) dialog.Close();
+            Dispatcher.BeginInvoke(() => { cancelQueued = false; Cancel(); }, System.Windows.Threading.DispatcherPriority.Background);
+            return;
+        }
+        DialogResult = false;
+    }
 }

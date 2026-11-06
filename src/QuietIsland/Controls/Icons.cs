@@ -68,8 +68,11 @@ public static class Icons
         return Draw("file", size, accent: accent, label: label);
     }
 
-    /// <summary>Own badges for common launchers; readable initials for other apps.</summary>
-    public static FrameworkElement Launcher(string target, string name, double size = 40)
+    /// <summary>The registered Windows app icon, with a readable fallback while it loads.</summary>
+    public static FrameworkElement Launcher(string target, string name, double size = 40) =>
+        ShellIcons.File(target, size, LauncherFallback(target, name, size));
+
+    private static FrameworkElement LauncherFallback(string target, string name, double size)
     {
         var key = LauncherKind(target);
         if (key != null) return Tile(key, size);
@@ -150,9 +153,19 @@ public static class Icons
         var g = new Glyph(accent ?? Accent(name), resource);
         switch (name)
         {
+            case "unpin":
+                g.Path("M8,3 H16 M9,3 V9 L6,13 V15 H18 V13 L15,9 V3 M12,15 V21", width: 1.8);
+                g.Path("M3,3 L21,21", width: 2.2);
+                break;
             case "repeat":
+            case "repeat-one":
                 g.Path("M19.5,8 A8,8 0 0 0 5,6.5 L3.5,9 M3.5,4.5 V9 H8", width: 1.9);
                 g.Path("M4.5,16 A8,8 0 0 0 19,17.5 L20.5,15 M16,15 H20.5 V19.5", width: 1.9);
+                if (name == "repeat-one") g.Path("M10.3,10.1 L12,8.8 V15 M10.4,15 H13.6", width: 1.6);
+                break;
+            case "shuffle":
+                g.Path("M3,6 H5.5 C10,6 12,18 17,18 H21 M17.5,14.5 L21,18 L17.5,21", width: 1.9);
+                g.Path("M3,18 H5.5 C7.4,18 8.7,15.9 10,13.5 M14,7.7 C15,6.6 15.7,6 17,6 H21 M17.5,2.5 L21,6 L17.5,9.5", width: 1.9);
                 break;
             case "home":
                 g.Path("M4.5,10.5 V19 A2,2 0 0 0 6.5,21 H17.5 A2,2 0 0 0 19.5,19 V10.5", Tone.Soft);
@@ -256,9 +269,11 @@ public static class Icons
                 g.Path("M6.5,10.1 L9.5,12.8 L6.5,15.5 M12.7,15.6 H17.3", stroke: Tone.Light, width: 1.9);
                 break;
             case "mic":
+            case "microphone-off":
                 g.Rect(7.4, 2.1, 9.2, 13.8, 4.6, Tone.Soft);
                 g.Path("M9.8,6 H14.2 M9.8,9 H14.2 M9.8,12 H14.2", stroke: Tone.Light, width: 1.3);
                 g.Path("M4.6,10.7 V12 A7.4,7.4 0 0 0 19.4,12 V10.7 M12,19.4 V22 M8.8,22 H15.2", width: 1.8);
+                if (name == "microphone-off") g.Path("M3,3 L21,21", width: 2.2);
                 break;
             case "volume":
                 g.Path("M3,9 H6.8 L11.5,5 V19 L6.8,15 H3 Q2.5,15 2.5,14.5 V9.5 Q2.5,9 3,9 Z", Tone.Soft);
@@ -391,6 +406,18 @@ public static class Icons
                 g.Path("M7.3,5.7 A8,8 0 1 0 16.7,5.7", width: 2.1);
                 g.Path("M12,2.7 V11", stroke: Tone.Light, width: 2.4);
                 break;
+            case "restart":
+                g.Path("M20.2,10 A8.3,8.3 0 1 0 19,17 M20.5,3.5 V10 H14", width: 2);
+                break;
+            case "theme":
+                g.Ellipse(5.5, 5.5, 13, 13, Tone.Soft);
+                g.Path("M12,5.5 A6.5,6.5 0 0 1 12,18.5 Z", Tone.Main, null);
+                g.Path("M12,1.8 V3 M12,21 V22.2 M1.8,12 H3 M21,12 H22.2 M4.8,4.8 L5.7,5.7 M18.3,18.3 L19.2,19.2 M4.8,19.2 L5.7,18.3 M18.3,5.7 L19.2,4.8", width: 1.5);
+                break;
+            case "notifications":
+                g.Path("M5.4,10 A6.6,6.6 0 0 1 18.6,10 V14.1 L21,18.2 H3 L5.4,14.1 Z", Tone.Soft);
+                g.Path("M9,21 A3.3,3.3 0 0 0 15,21 M12,2.1 V3.4", width: 1.8);
+                break;
             case "lock":
                 g.Path("M7.6,10 V7.2 A4.4,4.4 0 0 1 16.4,7.2 V10", width: 1.9);
                 g.Rect(4.7, 9.2, 14.6, 12, 3, Tone.Body);
@@ -479,6 +506,10 @@ public static class Icons
         "prev" or "back" => "previous",
         "add" => "plus",
         "delete" => "trash",
+        "microphone" => "mic",
+        "mic-off" => "microphone-off",
+        "sleep" => "moon",
+        "sound" => "volume",
         var value => value ?? "app"
     };
 

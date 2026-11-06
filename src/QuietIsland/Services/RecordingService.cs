@@ -15,6 +15,7 @@ public sealed class RecordingService(DesktopState state) : IDisposable
     private readonly object audioGate = new();
     private Process? process;
     private WasapiLoopbackCapture? audio;
+    private MMDevice? audioDevice;
     private WaveFileWriter? writer;
     private PcmTimeline? timeline;
     private string? rawPath, audioPath, outputPath, encoderPath;
@@ -49,12 +50,26 @@ public sealed class RecordingService(DesktopState state) : IDisposable
             gif = asGif;
             var stem = Path.Combine(state.Data.Settings.CaptureFolder, "Island " + DateTime.Now.ToString("yyyy-MM-dd HH-mm-ss-fff"));
             rawPath = stem + ".video.mp4"; audioPath = stem + ".audio.wav"; outputPath = stem + (gif ? ".gif" : ".mp4");
+            var duplication = DesktopDuplication.Find(bounds);
+            var useDuplication = duplication != null && await SupportsDuplicationAsync(encoderPath, cancellationToken).ConfigureAwait(false);
+            while (true)
+            {
             var info = BaseInfo(encoderPath);
-            Add(info, "-y", "-nostats", "-progress", "pipe:1", "-stats_period", "0.1", "-f", "gdigrab", "-framerate", state.Data.Settings.RecordingFps == 60 ? "60" : "30",
+            var filter = "pad=ceil(iw/2)*2:ceil(ih/2)*2";
+            Add(info, "-y", "-nostats", "-progress", "pipe:1", "-stats_period", "0.1");
+            if (useDuplication)
+            {
+                var output = duplication!.Value;
+                Add(info, "-filter_complex", FormattableString.Invariant($"ddagrab=output_idx={output.Index}:framerate={(state.Data.Settings.RecordingFps == 60 ? 60 : 30)}:draw_mouse={(state.Data.Settings.RecordCursor ? 1 : 0)}:video_size={bounds.Width}x{bounds.Height}:offset_x={bounds.X - output.Screen.X}:offset_y={bounds.Y - output.Screen.Y},hwdownload,format=bgra,{filter}"));
+            }
+            else Add(info, "-f", "gdigrab", "-framerate", state.Data.Settings.RecordingFps == 60 ? "60" : "30",
                 "-offset_x", bounds.X.ToString(CultureInfo.InvariantCulture), "-offset_y", bounds.Y.ToString(CultureInfo.InvariantCulture), "-video_size", $"{bounds.Width}x{bounds.Height}",
-                "-draw_mouse", "1", "-i", "desktop", "-an", "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2", "-c:v", "libx264", "-preset", "ultrafast", "-crf", state.Data.Settings.RecordingHighQuality ? "20" : "26", "-pix_fmt", "yuv420p", rawPath);
+                "-draw_mouse", state.Data.Settings.RecordCursor ? "1" : "0", "-i", "desktop", "-vf", filter);
+            Add(info, "-an", "-c:v", "libx264", "-preset", "ultrafast", "-crf", state.Data.Settings.RecordingHighQuality ? "20" : "26", "-pix_fmt", "yuv420p", rawPath);
             running = Process.Start(info) ?? throw new InvalidOperationException("Не удалось запустить FFmpeg.");
             process = running;
+            try
+            {
             errors = DrainAsync(running.StandardError);
             var firstFrame = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             progress = ReadProgressAsync(running.StandardOutput, firstFrame);
@@ -73,8 +88,20 @@ public sealed class RecordingService(DesktopState state) : IDisposable
             cancellationToken.ThrowIfCancellationRequested();
             if (ready == exited || running.HasExited)
                 throw Failure("FFmpeg не смог начать запись", running.ExitCode, await errors.ConfigureAwait(false));
+            break;
+            }
+            catch (Exception error) when (useDuplication && error is not OperationCanceledException)
+            {
+                StopAudio(); clock.Stop(); process = null;
+                await EndProcessAsync(running, TimeSpan.FromSeconds(3)).ConfigureAwait(false);
+                if (errors != null) await errors.ConfigureAwait(false);
+                if (progress != null) await progress.ConfigureAwait(false);
+                running.Dispose(); running = null; useDuplication = false;
+                Warning = "Аппаратный захват недоступен. Используется совместимый режим; при мерцании отключите запись курсора в настройках.";
+            }
+            }
             IsRecording = true; IsStarting = false;
-            _ = WatchUnexpectedExitAsync(running, errors, progress);
+            _ = WatchUnexpectedExitAsync(running!, errors!, progress!);
             Changed?.Invoke();
         }
         catch (Exception error)
@@ -97,6 +124,25 @@ public sealed class RecordingService(DesktopState state) : IDisposable
             LastError = failure.Message; Changed?.Invoke(); throw failure;
         }
         finally { transition.Release(); }
+    }
+    private static readonly Dictionary<string, bool> DuplicationSupport = new(StringComparer.OrdinalIgnoreCase);
+    private static async Task<bool> SupportsDuplicationAsync(string executable, CancellationToken token)
+    {
+        var key = executable + File.GetLastWriteTimeUtc(executable).Ticks;
+        lock (DuplicationSupport) if (DuplicationSupport.TryGetValue(key, out var known)) return known;
+        try
+        {
+            var info = new ProcessStartInfo(executable) { UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden, RedirectStandardOutput = true, RedirectStandardError = true };
+            Add(info, "-hide_banner", "-h", "filter=ddagrab");
+            using var probe = Process.Start(info)!;
+            var output = probe.StandardOutput.ReadToEndAsync(token); var error = probe.StandardError.ReadToEndAsync(token);
+            try { await probe.WaitForExitAsync(token).WaitAsync(TimeSpan.FromSeconds(3), token).ConfigureAwait(false); }
+            catch { if (!probe.HasExited) probe.Kill(true); throw; }
+            var supported = (await output).Contains("output_idx", StringComparison.Ordinal) || (await error).Contains("output_idx", StringComparison.Ordinal);
+            lock (DuplicationSupport) { if (DuplicationSupport.Count > 8) DuplicationSupport.Clear(); DuplicationSupport[key] = supported; }
+            return supported;
+        }
+        catch (Exception e) when (e is Win32Exception or IOException or TimeoutException) { return false; }
     }
 
     public async Task<string?> StopAsync()
@@ -168,8 +214,8 @@ public sealed class RecordingService(DesktopState state) : IDisposable
         try
         {
             using var enumerator = new MMDeviceEnumerator();
-            var device = string.IsNullOrEmpty(state.Data.Settings.AudioOutputId) ? enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia) : enumerator.GetDevice(state.Data.Settings.AudioOutputId);
-            audio = new WasapiLoopbackCapture(device); writer = new WaveFileWriter(audioPath!, audio.WaveFormat);
+            audioDevice = string.IsNullOrEmpty(state.Data.Settings.AudioOutputId) ? enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia) : enumerator.GetDevice(state.Data.Settings.AudioOutputId);
+            audio = new WasapiLoopbackCapture(audioDevice); writer = new WaveFileWriter(audioPath!, audio.WaveFormat);
             timeline = new PcmTimeline(writer, audio.WaveFormat.SampleRate, audio.WaveFormat.BlockAlign);
             audio.DataAvailable += (_, e) => { lock (audioGate) timeline?.Append(e.Buffer.AsSpan(0, e.BytesRecorded), clock.Elapsed); };
             audio.StartRecording(); audioRecorded = true;
@@ -189,7 +235,7 @@ public sealed class RecordingService(DesktopState state) : IDisposable
         catch (Exception error) { audioRecorded = false; Log.Write("Recording audio stop", error); }
         finally
         {
-            try { capture?.Dispose(); }
+            try { capture?.Dispose(); audioDevice?.Dispose(); audioDevice = null; }
             finally
             {
                 lock (audioGate)

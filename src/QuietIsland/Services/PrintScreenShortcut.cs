@@ -3,13 +3,15 @@ using System.Runtime.InteropServices;
 
 namespace QuietIsland.Services;
 
-/// <summary>Owns only plain/Ctrl+PrintScreen while the island is running. All other input passes through.</summary>
+/// <summary>Suppresses Windows' screenshot action only for explicitly assigned Print Screen chords.</summary>
 internal sealed class PrintScreenShortcut : IDisposable
 {
     private readonly Callback callback;
     private IntPtr hook;
     private bool claimed;
-    public event Action<bool>? Requested;
+    private IReadOnlyDictionary<uint, int> bindings = new Dictionary<uint, int>();
+    public event Action<int>? Requested;
+    public void SetBindings(IReadOnlyDictionary<uint, int> value) => bindings = value;
     public PrintScreenShortcut()
     {
         callback = Observe; hook = SetWindowsHookEx(13, callback, GetModuleHandle(null), 0);
@@ -23,9 +25,11 @@ internal sealed class PrintScreenShortcut : IDisposable
             if (kind is 0x100 or 0x104)
             {
                 bool Down(int key) => (Native.GetAsyncKeyState(key) & 0x8000) != 0;
-                if (!Down(0x12) && !Down(0x10) && !Down(0x5B) && !Down(0x5C))
+                var modifiers = (Down(0x12) ? 1u : 0) | (Down(0x11) ? 2u : 0) | (Down(0x10) ? 4u : 0) | (Down(0x5B) || Down(0x5C) ? 8u : 0);
+                if (claimed) return new IntPtr(1);
+                if (bindings.TryGetValue(modifiers, out var id))
                 {
-                    if (!claimed) { claimed = true; Requested?.Invoke(Down(0x11)); }
+                    claimed = true; Requested?.Invoke(id);
                     return new IntPtr(1);
                 }
             }

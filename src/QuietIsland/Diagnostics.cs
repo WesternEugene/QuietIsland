@@ -49,10 +49,12 @@ public static class Diagnostics
         }
         if (args.Contains("--render"))
         {
-            if (c.Weather.Current == null)
+            if (c.Weather.Current == null || c.Weather.Current.Hours.Count == 0 || c.Weather.Current.Days.Count == 0)
             {
                 c.Settings.WeatherCity = "Пример прогноза";
-                typeof(WeatherService).GetProperty(nameof(WeatherService.Current))!.SetValue(c.Weather, new WeatherForecast(1, -1, 3, 6, 96, [], [], DateTimeOffset.Now));
+                typeof(WeatherService).GetProperty(nameof(WeatherService.Current))!.SetValue(c.Weather, new WeatherForecast(1, -1, 3, 6, 96,
+                    Enumerable.Range(0, 24).Select(i => new WeatherHour(DateTime.Today.AddHours(i).ToString("s"), 1 + Math.Sin(i / 4d) * 3, i < 5 ? 70 : 15, i < 5 ? 61 : 2)).ToList(),
+                    Enumerable.Range(0, 7).Select(i => new WeatherDay(DateTime.Today.AddDays(i).ToString("yyyy-MM-dd"), -2 + i, 3 + i, i % 3 == 0 ? 61 : 2)).ToList(), DateTimeOffset.Now));
                 results["weatherRenderData"] = "sample";
             }
             var window = new MainWindow(c, true); var folder = Path.Combine(directory, "previews"); Directory.CreateDirectory(folder);
@@ -74,6 +76,7 @@ public static class Diagnostics
             settings.SelectCategory("Состав и музыка"); CaptureService.SavePng(Render(settingsRoot, 860, 710), Path.Combine(folder, "settings-music.png")); settings.SelectCategory("Вид острова");
             settings.SelectCategory("Верхняя панель"); CaptureService.SavePng(Render(settingsRoot, 860, 710), Path.Combine(folder, "settings-header.png"));
             settings.SelectCategory("Ресурсы"); CaptureService.SavePng(Render(settingsRoot, 860, 710), Path.Combine(folder, "settings-resources.png")); settings.SelectCategory("Вид острова");
+            settings.SelectCategory("Буфер и клавиши"); CaptureService.SavePng(Render(settingsRoot, 860, 710), Path.Combine(folder, "settings-shortcuts.png")); settings.SelectCategory("Вид острова");
             settings.Content = settingsRoot;
             c.Settings.Theme = "Light"; window.ApplySettings();
             await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.ApplicationIdle);
@@ -95,7 +98,7 @@ public static class Diagnostics
             window.ShowPanel("notes", false); CaptureService.SavePng(Render(window.RenderRoot, 744, 430), Path.Combine(folder, "notes-timer.png")); c.State.Data.TimerEnd = null;
             window.ShowPanel("home", false); ((LiquidSurface)((Grid)window.RenderRoot).Children[0]).Update(c.Media);
             await Task.Delay(160);
-            CaptureService.SavePng(Render(window.RenderRoot, 744, 376), Path.Combine(folder, "home-media.png"));
+            CaptureService.SavePng(Render(window.RenderRoot, 744, 430), Path.Combine(folder, "home-media.png"));
             typeof(MainWindow).GetMethod("TimerFinished", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(window, ["Таймер завершён"]);
             window.ShowPanel("notes", false); CaptureService.SavePng(Render(window.RenderRoot, 744, 430), Path.Combine(folder, "timer-notice.png"));
             using (var lyricContext = new IslandContext(Path.Combine(directory, "lyric-preview-state"), new LyricsService(new PreviewLyricsHandler())))
@@ -105,8 +108,19 @@ public static class Diagnostics
                 for (var i = 0; i < 20 && lyricContext.Lyrics.Current.Status == LyricsStatus.Loading; i++) await Task.Delay(20);
                 var lyricWindow = new MainWindow(lyricContext, true); lyricWindow.ShowPanel("media", false); Render(lyricWindow.RenderRoot, 744, 430);
                 await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.ApplicationIdle);
-                CaptureService.SavePng(Render(lyricWindow.RenderRoot, 744, 430), Path.Combine(folder, "media-lyrics.png")); lyricWindow.Close();
+                CaptureService.SavePng(Render(lyricWindow.RenderRoot, 744, 430), Path.Combine(folder, "media-lyrics.png"));
+                lyricWindow.ShowPanel("home", false); await Task.Delay(180);
+                CaptureService.SavePng(Render(lyricWindow.RenderRoot, 744, 450), Path.Combine(folder, "home-lyrics.png"));
+                typeof(RecordingService).GetProperty(nameof(RecordingService.LastOutputPath))!.SetValue(lyricContext.Recording, Path.Combine(fixtureFolder, "Запись экрана.mp4"));
+                lyricWindow.ShowPanel("home", false);
+                CaptureService.SavePng(Render(lyricWindow.RenderRoot, 744, 510), Path.Combine(folder, "home-lyrics-recording.png"));
+                lyricWindow.Close();
             }
+            typeof(MainWindow).GetMethod("ClearTimerNotice", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(window, null);
+            typeof(MainWindow).GetMethod("ReminderFinished", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(window, [new Core.Reminder { Title = "Проверить духовку" }]);
+            window.Collapse(); CaptureService.SavePng(CompactImage(), Path.Combine(folder, "reminder-compact.png"));
+            window.ShowPanel("notes", false); CaptureService.SavePng(Render(window.RenderRoot, 744, 430), Path.Combine(folder, "reminder-panel.png"));
+            typeof(MainWindow).GetMethod("DismissActiveAlarm", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(window, null);
             window.ShowPanel("home", false); var notchRoot = window.RenderRoot; window.Content = null;
             var desktop = new Canvas { Width = 1000, Height = 580, Background = new SolidColorBrush(Color.FromRgb(68, 87, 116)) };
             Canvas.SetLeft(notchRoot, 128); Canvas.SetTop(notchRoot, 0); desktop.Children.Add(notchRoot);

@@ -62,7 +62,10 @@ public sealed class NoteEditor : RichTextBox
 
     internal void UpdateTaskClick(Point point, bool leftButtonDown)
     {
-        if (taskPress is { } press && (!leftButtonDown || Dragged(press.Origin, point))) taskPress = null;
+        // Capture release can report a final MouseMove with the button already up
+        // before the editor's handled MouseUp bubbles to TaskMouseUp. Only a real
+        // drag cancels the pending click; CompleteTaskClick checks its release point.
+        if (leftButtonDown && taskPress is { } press && Dragged(press.Origin, point)) taskPress = null;
     }
 
     internal bool CompleteTaskClick(Point point)

@@ -13,9 +13,7 @@ public sealed class SearchView : IslandView
 {
     private readonly TextBox query = Ui.Input("Файлы, программы и прочее");
     private readonly ListBox list = new();
-    private readonly TextBlock hint = Ui.Text("Введите имя файла или используйте синтаксис Everything", 11, "Muted");
-    private readonly WrapPanel pins = new();
-    private readonly WrapPanel group = new();
+    private readonly TextBlock hint = Ui.Text("Файлы и программы · s — параметры Windows", 11, "Muted");
     private readonly Button aiShortcut;
     private CancellationTokenSource? search;
     private IReadOnlyList<SearchResult>? catalog;
@@ -25,9 +23,9 @@ public sealed class SearchView : IslandView
         var root = new Grid(); root.RowDefinitions.Add(new() { Height = GridLength.Auto }); root.RowDefinitions.Add(new() { Height = GridLength.Auto }); root.RowDefinitions.Add(new()); root.RowDefinitions.Add(new() { Height = GridLength.Auto });
         var title = Ui.Stack(query); title.Margin = new Thickness(0, 0, 0, 5); root.Children.Add(title);
         aiShortcut = Ui.Button("✧ Спросить ИИ", () => { if (C.Ai.IsConfigured) { query.Text = "? "; query.CaretIndex = 2; query.Focus(); } }); aiShortcut.IsEnabled = C.Ai.IsConfigured;
-        var shortcuts = Ui.Row(Ui.Button("◷ Таймер", () => { query.Text = "таймер 10 мин"; query.Focus(); }), aiShortcut, Ui.Button("+ Ярлык", AddPin)); Grid.SetRow(shortcuts, 1); root.Children.Add(shortcuts);
+        var shortcuts = Ui.Row(Ui.Button("◷ Таймер", () => { query.Text = "таймер 10 мин"; query.Focus(); }), aiShortcut); Grid.SetRow(shortcuts, 1); root.Children.Add(shortcuts);
         Grid.SetRow(list, 2); root.Children.Add(list);
-        var footer = Ui.Stack(group, pins, hint); Grid.SetRow(footer, 3); root.Children.Add(footer); Content = root;
+        Grid.SetRow(hint, 3); root.Children.Add(hint); Content = root;
         query.FontSize = 17; query.Height = 50; query.Padding = new Thickness(14, 8, 14, 8);
         query.TextChanged += async (_, _) => await SearchAsync();
         query.PreviewKeyDown += (_, e) =>
@@ -37,7 +35,7 @@ public sealed class SearchView : IslandView
         };
         list.MouseDoubleClick += (_, _) => Execute(); list.PreviewKeyDown += (_, e) => { if (e.Key == Key.Enter) { Execute(); e.Handled = true; } };
         C.State.Changed += ConfigurationChanged;
-        BuildPins(); _ = SearchAsync();
+        _ = SearchAsync();
     }
     private void ConfigurationChanged()
     {
@@ -52,8 +50,8 @@ public sealed class SearchView : IslandView
     private void Add(string name, string description, string glyph, Action action, SearchResult? result = null)
     {
         var grid = new Grid(); grid.ColumnDefinitions.Add(new() { Width = new GridLength(35) }); grid.ColumnDefinitions.Add(new()); grid.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-        var iconKind = glyph switch { "⌕" => "search", "◷" => "clock", "◉" => "activity", "=" => "calculator", ">_" => "terminal", "✧" => "ai", "☷" => "control", "↗" => "browser", _ => "file" };
-        var symbol = result == null ? Icons.Colored(iconKind, 24) : ShellIcons.File(result.Path, 26);
+        var iconKind = glyph switch { "⌕" => "search", "◷" => "clock", "◉" => "activity", "=" => "calculator", ">_" => "terminal", "✧" => "ai", "☷" => "control", "⚙" => "settings", "↗" => "browser", _ => "file" };
+        var symbol = result != null ? ShellIcons.File(result.Path, 26) : iconKind == "settings" ? ShellIcons.File("ms-settings:", 26) : Icons.Colored(iconKind, 24);
         symbol.VerticalAlignment = VerticalAlignment.Center; symbol.HorizontalAlignment = HorizontalAlignment.Left; grid.Children.Add(symbol);
         var lines = Ui.Stack(Ui.Text(name, 13, bold: true), Ui.Text(description, 10, "Muted")); Grid.SetColumn(lines, 1); grid.Children.Add(lines);
         if (result != null) { var kind = Ui.Text(result.Kind, 10, "Muted"); Grid.SetColumn(kind, 2); grid.Children.Add(kind); }
@@ -61,10 +59,17 @@ public sealed class SearchView : IslandView
         if (result != null)
         {
             var menu = new ContextMenu();
-            foreach (var (label, callback) in new (string, Action)[] { ("Открыть", () => SystemService.Open(result.Path)), ("Показать в папке", () => SystemService.Reveal(result.Path)), ("Скопировать путь", () => System.Windows.Clipboard.SetText(result.Path)), ("Добавить на полку", () => { if (!C.State.Data.Shelf.Contains(result.Path)) C.State.Data.Shelf.Add(result.Path); C.State.Touch(); C.Notify("Файл на полке"); }) })
+            var fileActions = new List<(string, Action)> { ("Открыть", () => SystemService.Open(result.Path)), ("Скопировать путь", () => System.Windows.Clipboard.SetText(result.Path)) };
+            var shellApplication = ShellApplications.IsTarget(result.Path);
+            if (!shellApplication)
+            {
+                fileActions.Insert(1, ("Показать в папке", () => SystemService.Reveal(result.Path)));
+                fileActions.Add(("Добавить на полку", () => { if (!C.State.Data.Shelf.Contains(result.Path)) C.State.Data.Shelf.Add(result.Path); C.State.Touch(); C.Notify("Файл на полке"); }));
+            }
+            foreach (var (label, callback) in fileActions)
             { var mi = new MenuItem { Header = label, Icon = Icons.Colored(label switch { "Открыть" => "file", "Показать в папке" => "folder", "Скопировать путь" => "code", _ => "shelf" }, 16) }; mi.Click += (_, _) => { try { callback(); } catch (Exception e) { C.Error(e); } }; menu.Items.Add(mi); }
             item.ContextMenu = menu;
-            FileDrag.Attach(item, () => new DataObject(DataFormats.FileDrop, new[] { result.Path }));
+            if (!shellApplication) FileDrag.Attach(item, () => new DataObject(DataFormats.FileDrop, new[] { result.Path }));
         }
         list.Items.Add(item);
     }
@@ -90,7 +95,9 @@ public sealed class SearchView : IslandView
             catalog = C.Applications;
             if (input.Length == 0)
             {
+                hint.Text = "Файлы и программы · s — параметры Windows";
                 Add("Поиск по всему компьютеру", "Everything · имена, пути, ext:pdf, size:>10mb", "⌕", () => query.Focus());
+                Add("s — параметры Windows", "Например: s экран, s звук, s bluetooth", "⚙", () => { query.Text = "s "; query.CaretIndex = 2; query.Focus(); });
                 Add("таймер 10 мин", "Запустить таймер прямо в острове", "◷", () => { C.StartTimer(TimeSpan.FromMinutes(10)); C.Collapse(); });
                 Add("напомни позвонить маме завтра в 9", "Напоминания одной фразой · ежедневные и по дням недели", "◉", () => { query.Text = "напомни "; query.CaretIndex = query.Text.Length; query.Focus(); });
                 Add("2 + 3 * 4  /  1 inch to cm", "Калькулятор и перевод единиц без запуска команд", "=", () => { query.Text = "2 + 3 * 4"; query.Focus(); });
@@ -105,6 +112,14 @@ public sealed class SearchView : IslandView
             }
             switch (command.Kind)
             {
+                case CommandKind.SettingsSearch:
+                    var pages = SettingsLanguage.Search(command.Text);
+                    foreach (var page in pages)
+                        Add(SettingsLanguage.Name(page), page.Target, "⚙", () => { SystemService.Open(page.Target); C.Collapse(); });
+                    if (pages.Count == 0)
+                        Add("Открыть параметры Windows", "Раздел не найден · попробуйте другое название", "⚙", () => { SystemService.Open("ms-settings:"); C.Collapse(); });
+                    hint.Text = "Параметры Windows · s + название раздела · Enter — открыть";
+                    break;
                 case CommandKind.Calculate: Add(command.Result!, "Enter — скопировать результат", "=", () => { System.Windows.Clipboard.SetText(command.Result!); C.Notify("Результат скопирован"); }); break;
                 case CommandKind.Timer: Add("Таймер · " + Ui.Time(command.Duration.TotalSeconds), "Enter — запустить", "◷", () => { C.StartTimer(command.Duration); C.Collapse(); }); break;
                 case CommandKind.Reminder:
@@ -140,28 +155,13 @@ public sealed class SearchView : IslandView
         catch (OperationCanceledException) { }
         catch (Exception e) { if (!Disposed) hint.Text = "Поиск недоступен · " + e.GetType().Name; }
     }
-    private void AddResult(SearchResult result) => Add(result.Name, result.Path + (result.Size >= 0 && result.Kind != "Папка" ? " · " + Ui.Bytes(result.Size) : ""), result.Kind == "Папка" ? "▱" : "◇", () =>
+    private void AddResult(SearchResult result) => Add(result.Name, result.Detail ?? result.Path + (result.Size >= 0 && result.Kind != "Папка" ? " · " + Ui.Bytes(result.Size) : ""), result.Kind == "Папка" ? "▱" : "◇", () =>
     {
-        if ((Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Shift)) == (ModifierKeys.Control | ModifierKeys.Shift)) Process.Start(new ProcessStartInfo(result.Path) { UseShellExecute = true, Verb = "runas" });
+        if (ShellApplications.IsTarget(result.Path)) SystemService.Open(result.Path);
+        else if ((Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Shift)) == (ModifierKeys.Control | ModifierKeys.Shift)) Process.Start(new ProcessStartInfo(result.Path) { UseShellExecute = true, Verb = "runas" });
         else if ((Keyboard.Modifiers & ModifierKeys.Control) != 0) SystemService.Reveal(result.Path);
         else SystemService.Open(result.Path);
         C.Collapse();
     }, result);
-    private void AddPin() => LauncherActions.Add(C, BuildPins);
-    private void BuildPins()
-    {
-        pins.Children.Clear(); group.Children.Clear();
-        foreach (var items in C.State.Data.Launcher.GroupBy(x => string.IsNullOrEmpty(x.Group) ? x.Name + "\0" : x.Group))
-        {
-            var entries = items.ToArray(); var first = entries[0]; var isGroup = entries.Length > 1 || first.Group.Length > 0;
-            var button = Ui.Button(isGroup ? "▦ " + first.Group : first.Name, () =>
-            { if (!isGroup) { try { SystemService.Open(first.Target); C.Collapse(); } catch (Exception e) { C.Error(e); } } else { group.Children.Clear(); foreach (var item in entries) group.Children.Add(PinButton(item)); } });
-            button.AllowDrop = true; button.Drop += (_, e) => { if (e.Data.GetData("QuietIsland.Launcher") is LaunchItem dragged && dragged != first) { var name = first.Group.Length > 0 ? first.Group : first.Name; first.Group = dragged.Group = name; C.State.Touch(); BuildPins(); e.Handled = true; } };
-            FileDrag.Attach(button, () => new DataObject("QuietIsland.Launcher", first));
-            button.ContextMenu = PinMenu(first); pins.Children.Add(button);
-        }
-    }
-    private Button PinButton(LaunchItem pin) { var button = Ui.Button(pin.Name, () => { SystemService.Open(pin.Target); C.Collapse(); }); button.ContextMenu = PinMenu(pin); return button; }
-    private ContextMenu PinMenu(LaunchItem pin) => LauncherActions.Menu(C, pin, BuildPins);
     public override void Dispose() { C.State.Changed -= ConfigurationChanged; search?.Cancel(); search?.Dispose(); base.Dispose(); }
 }

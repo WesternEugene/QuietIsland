@@ -19,14 +19,16 @@ internal static class UiRegressionChecks
         collapsed.HandleDragEnter(new DataObject(DataFormats.FileDrop, new[] { "C:\\fixture.txt" }));
         var collapsedOpensShelf = collapsed.SelectedTab == "shelf";
 
-        var alarms = new List<string>(); c.Toast += alarms.Add;
         c.State.Data.TimerEnd = DateTimeOffset.Now.AddSeconds(-1);
         var reminder = new QuietIsland.Core.Reminder { Title = "Hidden reminder fixture", Due = DateTimeOffset.Now.AddSeconds(-1) };
         c.State.Data.Reminders.Add(reminder); window.SetIslandHidden(true);
         await window.TickAsync();
-        var hiddenTimerFires = c.State.Data.TimerEnd == null && alarms.Contains("Таймер завершён");
-        var hiddenReminderFires = reminder.Completed && alarms.Contains(reminder.Title);
-        c.Toast -= alarms.Add; c.State.Data.Reminders.Remove(reminder); c.State.Data.TimerEnd = null;
+        var alarm = (FrameworkElement)window.FindName("CompactAlarm"); var alarmTitle = (TextBlock)window.FindName("CompactAlarmTitle");
+        var hiddenReminderFires = reminder.Completed && alarm.Visibility == Visibility.Visible && alarmTitle.Text == reminder.Title;
+        ((Button)window.FindName("CompactTimerDismiss")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var hiddenTimerFires = c.State.Data.TimerEnd == null && alarm.Visibility == Visibility.Visible && alarmTitle.Text == "Таймер";
+        ((Button)window.FindName("CompactTimerDismiss")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        c.State.Data.Reminders.Remove(reminder); c.State.Data.TimerEnd = null;
 
         var pillWindow = new MainWindow(c, true); var root = pillWindow.RenderRoot; pillWindow.Content = null;
         using var source = new HwndSource(new HwndSourceParameters("QuietIsland.HitCheck") { ParentWindow = new IntPtr(-3), WindowStyle = 0, Width = 744, Height = 430 });

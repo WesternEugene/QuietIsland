@@ -16,13 +16,15 @@ namespace QuietIsland.Services;
 public sealed record CaptureResult(BitmapSource Image, Rectangle Bounds);
 public sealed class CaptureService(DesktopState state)
 {
-    public async Task<CaptureResult?> SelectAsync(bool color = false, bool annotate = false)
+    public async Task<CaptureResult?> SelectAsync(bool color = false, bool annotate = false, CancellationToken token = default)
     {
-        await Task.Delay(160);
+        await Task.Delay(60, token);
         var bounds = System.Windows.Forms.SystemInformation.VirtualScreen;
-        var windows = color ? [] : CaptureWindows.Snapshot();
+        var windows = color ? [] : CaptureWindows.SnapshotTargets();
         var image = Screen(bounds);
-        var window = new Windows.SelectionWindow(image, bounds, color, annotate, windows);
+        token.ThrowIfCancellationRequested();
+        var window = new Windows.SelectionWindow(image, bounds, color, annotate, windows.Select(x => x.Bounds).ToArray(), windows.Select(x => x.ActivationBounds).ToArray());
+        using var registration = token.Register(() => window.Dispatcher.BeginInvoke(window.CancelSelection));
         return window.ShowDialog() == true ? window.Result : null;
     }
     public async Task<string> SaveAndCopyAsync(BitmapSource image)
@@ -47,8 +49,13 @@ public sealed class CaptureService(DesktopState state)
     }
     public static BitmapSource FromBitmap(Bitmap bitmap)
     {
-        using var stream = new MemoryStream(); bitmap.Save(stream, ImageFormat.Png); stream.Position = 0;
-        var image = new BitmapImage(); image.BeginInit(); image.CacheOption = BitmapCacheOption.OnLoad; image.StreamSource = stream; image.EndInit(); image.Freeze(); return image;
+        var data = bitmap.LockBits(new Rectangle(0, 0, bitmap.Width, bitmap.Height), ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        try
+        {
+            var image = BitmapSource.Create(bitmap.Width, bitmap.Height, 96, 96, PixelFormats.Bgra32, null, data.Scan0, checked(Math.Abs(data.Stride) * bitmap.Height), data.Stride);
+            image.Freeze(); return image;
+        }
+        finally { bitmap.UnlockBits(data); }
     }
     public static void SavePng(BitmapSource image, string path)
     {

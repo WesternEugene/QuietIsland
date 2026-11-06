@@ -28,7 +28,7 @@ internal sealed class NotchMotion(LiquidSurface surface) : IDisposable
         width.Snap(width.Target); height.Snap(height.Target); Present();
         var callback = complete; Stop(); callback?.Invoke();
     }
-    private void Present() { surface.VisualWidth = Math.Clamp(width.Value, 150, 744); surface.VisualHeight = Math.Clamp(height.Value, 44, 430); }
+    private void Present() { surface.VisualWidth = Math.Clamp(width.Value, 150, 744); surface.VisualHeight = Math.Clamp(height.Value, 44, 760); }
     private void Stop() { if (active) CompositionTarget.Rendering -= Frame; active = false; last = TimeSpan.Zero; complete = null; }
     public void Dispose() => Stop();
 }

@@ -21,16 +21,33 @@ public sealed class ClipboardView : IslandView
         if (Disposed) return; rows.Children.Clear();
         var clips = C.State.Data.Clipboard.Where(x => x.Preview.Contains(filter.Text, StringComparison.CurrentCultureIgnoreCase)).OrderByDescending(x => x.Pinned).ToList();
         if (clips.Count == 0) { rows.Children.Add(Ui.Empty("▤", "История начнётся с копирования", "Текст, картинки и файлы хранятся на этом компьютере. Клик по записи возвращает её в окно, где вы печатали.")); return; }
-        foreach (var entry in clips)
+        // Keep decoded previews and WPF elements bounded even with a large history.
+        var shown = 0;
+        void More()
+        {
+        foreach (var entry in clips.Skip(shown).Take(30))
         {
             var content = new DockPanel();
-            var buttons = Ui.Row(Ui.Button(entry.Pinned ? "◆" : "◇", () => { entry.Pinned = !entry.Pinned; C.State.Touch(); Build(); }, tip: "Закрепить"), Ui.Button("×", () => C.Clipboard.Remove(entry), tip: "Удалить запись")); DockPanel.SetDock(buttons, Dock.Right); content.Children.Add(buttons);
+            var buttons = Ui.Row(Icons.Button(entry.Pinned ? "unpin" : "pin", entry.Pinned ? "Открепить" : "Закрепить", () => C.Clipboard.SetPinned(entry, !entry.Pinned)));
+            if (!entry.Pinned) buttons.Children.Add(Icons.Button("close", "Удалить запись", () => C.Clipboard.Remove(entry)));
+            DockPanel.SetDock(buttons, Dock.Right); content.Children.Add(buttons);
             var text = Ui.Text(entry.Preview.Length > 350 ? entry.Preview[..350] + "…" : entry.Preview); text.MaxHeight = 75;
             var body = Ui.Stack(text, Ui.Text(entry.Created.ToString("dd.MM · HH:mm") + " · " + entry.Kind, 10, "Muted"));
-            if (entry.Kind == "image" && File.Exists(entry.ImagePath)) { try { var image = Thumbnail(entry.ImagePath); body.Children.Insert(0, new Image { Source = image, Height = 90, HorizontalAlignment = HorizontalAlignment.Left }); body.Children.Add(Ui.Button("Открыть изображение", () => SystemService.Open(entry.ImagePath!))); } catch { } }
-            var copy = Ui.Button("", () => { try { C.Collapse(); C.Clipboard.Copy(entry, C.PasteTarget); } catch (Exception e) { C.Error(e); } }); copy.Content = body; copy.HorizontalContentAlignment = HorizontalAlignment.Left; copy.Background = System.Windows.Media.Brushes.Transparent;
-            content.Children.Add(copy); rows.Children.Add(Ui.Card(content, 8));
+            if (entry.Kind == "image" && File.Exists(entry.ImagePath)) { try { var image = Thumbnail(entry.ImagePath); body.Children.Insert(0, new Image { Source = image, Height = 90, HorizontalAlignment = HorizontalAlignment.Left }); } catch { } }
+            var copy = Ui.Button("", () => { try { C.Collapse(); C.Clipboard.Copy(entry, C.PasteTarget); } catch (Exception e) { C.Error(e); } }, tip: "Вставить запись"); copy.Content = body; copy.HorizontalContentAlignment = HorizontalAlignment.Left; copy.Background = System.Windows.Media.Brushes.Transparent;
+            var actions = Ui.Stack(copy);
+            if (entry.Kind == "image" && File.Exists(entry.ImagePath)) actions.Children.Add(Ui.Button("Открыть изображение", () => { try { SystemService.Open(entry.ImagePath!); } catch (Exception e) { C.Error(e); } }));
+            content.Children.Add(actions); rows.Children.Add(Ui.Card(content, 8));
         }
+        shown += Math.Min(30, clips.Count - shown);
+        if (shown < clips.Count)
+        {
+            Button? more = null;
+            more = Ui.Button($"Показать ещё · осталось {clips.Count - shown}", () => { rows.Children.Remove(more); More(); });
+            rows.Children.Add(more);
+        }
+        }
+        More();
     }
     private static BitmapImage Thumbnail(string path)
     {

@@ -5,6 +5,8 @@ using NAudio.CoreAudioApi;
 using NAudio.Dsp;
 using NAudio.Wave;
 using QuietIsland.Models;
+using QuietIsland.Core;
+using Windows.Media;
 using Windows.Media.Control;
 using Windows.Storage.Streams;
 
@@ -42,7 +44,11 @@ public sealed class MediaService : IDisposable
     private string preferredSource = "";
     private BitmapSource? cover;
     public MediaSnapshot Current { get; private set; } = MediaSnapshot.Empty;
-    public string PreferredSource { get => preferredSource; set { if (preferredSource == value) return; preferredSource = value; Interlocked.Increment(ref pollGeneration); } }
+    public bool CanShuffle { get; private set; }
+    public bool IsShuffleActive { get; private set; }
+    public bool CanRepeat { get; private set; }
+    public MediaPlaybackAutoRepeatMode RepeatMode { get; private set; }
+    public string PreferredSource { get => preferredSource; set { if (preferredSource == value) return; NotifyManualControl(null); preferredSource = value; Interlocked.Increment(ref pollGeneration); } }
     public bool EconomyMode
     {
         get => economyMode;
@@ -58,6 +64,36 @@ public sealed class MediaService : IDisposable
         lock (audioGate) return IsFresh ? new((float[])spectrum.Clone(), peak) : new(Silence, 0);
     }
     public event Action? Changed;
+    public event Action? ManualControl;
+    private readonly SessionIdentityRegistry<GlobalSystemMediaTransportControlsSession> focusSessions = new(x => x.SourceAppUserModelId);
+    internal string? ManualFocusTargetId { get; private set; }
+    private string FocusId(GlobalSystemMediaTransportControlsSession target)
+    {
+        return focusSessions.GetId(target);
+    }
+    internal string? CurrentSystemFocusTargetId
+    {
+        get
+        {
+            if (manager?.GetCurrentSession() is not { } current) return null;
+            var matches = focusSessions.Sessions.Where(x => x.SourceAppUserModelId == current.SourceAppUserModelId).ToArray();
+            if (matches.Length == 0) return null;
+            var selected = matches[0];
+            if (matches.Length > 1)
+            {
+                var timeline = current.GetTimelineProperties();
+                selected = matches.FirstOrDefault(x => { var candidate = x.GetTimelineProperties(); return candidate.LastUpdatedTime == timeline.LastUpdatedTime && candidate.Position == timeline.Position; }) ?? selected;
+            }
+            return FocusId(selected);
+        }
+    }
+    private void NotifyManualControl(GlobalSystemMediaTransportControlsSession? target)
+    { ManualFocusTargetId = target == null ? null : FocusId(target); ManualControl?.Invoke(); }
+    internal IReadOnlyList<(string Id, GlobalSystemMediaTransportControlsSession Session)> FocusTargets()
+    {
+        if (manager == null) return [];
+        return focusSessions.Refresh(manager.GetSessions().ToArray());
+    }
     public async Task StartAsync()
     {
         try { manager = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync(); Status = "Медиасессии Windows подключены"; }
@@ -211,10 +247,11 @@ public sealed class MediaService : IDisposable
         try
         {
             var selectedSession = ResolveSession();
-            if (selectedSession == null) { if (Fresh()) { session = null; Current = MediaSnapshot.Empty; lastKey = ""; cover = null; ReconcileAnalysis(); Changed?.Invoke(); } return; }
+            if (selectedSession == null) { if (Fresh()) { session = null; Current = MediaSnapshot.Empty; lastKey = ""; cover = null; ClearPlaybackModes(); ReconcileAnalysis(); Changed?.Invoke(); } return; }
             var properties = await selectedSession.TryGetMediaPropertiesAsync();
             if (!Fresh()) return;
-            var playing = selectedSession.GetPlaybackInfo().PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
+            var playback = selectedSession.GetPlaybackInfo();
+            var playing = playback.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
             var timeline = selectedSession.GetTimelineProperties();
             var key = string.Join("\n", selectedSession.SourceAppUserModelId, properties.Title, properties.Artist, properties.AlbumTitle);
             var selectedCover = lastKey == key ? cover : null;
@@ -231,11 +268,14 @@ public sealed class MediaService : IDisposable
             session = selectedSession; lastKey = key; cover = selectedCover;
             Current = new(properties.Title, properties.Artist, properties.AlbumTitle, playing, selectedSession.SourceAppUserModelId,
                 Math.Min(position, timeline.EndTime.TotalSeconds), timeline.EndTime.TotalSeconds, selectedCover, properties.PlaybackType != global::Windows.Media.MediaPlaybackType.Video);
+            CanShuffle = playback.Controls.IsShuffleEnabled; IsShuffleActive = playback.IsShuffleActive ?? false;
+            CanRepeat = playback.Controls.IsRepeatEnabled; RepeatMode = playback.AutoRepeatMode ?? MediaPlaybackAutoRepeatMode.None;
             ReconcileAnalysis();
             Changed?.Invoke();
         }
-        catch (Exception e) { if (!Fresh()) return; Current = Current with { IsPlaying = false }; ReconcileAnalysis(); Log.Write("Media poll", e); Changed?.Invoke(); }
+        catch (Exception e) { if (!Fresh()) return; Current = Current with { IsPlaying = false }; ClearPlaybackModes(); ReconcileAnalysis(); Log.Write("Media poll", e); Changed?.Invoke(); }
     }
+    private void ClearPlaybackModes() { CanShuffle = CanRepeat = IsShuffleActive = false; RepeatMode = MediaPlaybackAutoRepeatMode.None; }
     private GlobalSystemMediaTransportControlsSession? ResolveSession()
     {
         if (manager == null) return session;
@@ -244,9 +284,41 @@ public sealed class MediaService : IDisposable
             ?? sessions.FirstOrDefault(x => x.GetPlaybackInfo().PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
             ?? manager.GetCurrentSession();
     }
-    public async Task ToggleAsync() { var target = ResolveSession(); if (target != null) await target.TryTogglePlayPauseAsync(); await PollAsync(); }
-    public async Task NextAsync() { var target = ResolveSession(); if (target != null) await target.TrySkipNextAsync(); await PollAsync(); }
-    public async Task PreviousAsync() { var target = ResolveSession(); if (target != null) await target.TrySkipPreviousAsync(); await PollAsync(); }
-    public async Task SeekAsync(double seconds) { var target = ResolveSession(); if (target != null) await target.TryChangePlaybackPositionAsync(TimeSpan.FromSeconds(seconds).Ticks); await PollAsync(); }
+    public async Task ToggleAsync() { var target = ResolveSession(); NotifyManualControl(target); if (target != null) await target.TryTogglePlayPauseAsync(); await PollAsync(); }
+    public async Task NextAsync() { var target = ResolveSession(); NotifyManualControl(target); if (target != null) await target.TrySkipNextAsync(); await PollAsync(); }
+    public async Task PreviousAsync() { var target = ResolveSession(); NotifyManualControl(target); if (target != null) await target.TrySkipPreviousAsync(); await PollAsync(); }
+    public async Task SeekAsync(double seconds)
+    {
+        if (!double.IsFinite(seconds)) return;
+        var target = ResolveSession(); NotifyManualControl(target);
+        if (target != null && !await target.TryChangePlaybackPositionAsync(TimeSpan.FromSeconds(Math.Max(0, seconds)).Ticks)) throw new InvalidOperationException("Этот плеер не принял перемотку трека.");
+        await PollAsync();
+    }
+    public async Task ToggleShuffleAsync()
+    {
+        var target = ResolveSession();
+        if (target == null) return;
+        var playback = target.GetPlaybackInfo();
+        if (!playback.Controls.IsShuffleEnabled) throw new InvalidOperationException("Этот плеер не поддерживает переключение перемешивания.");
+        var accepted = await target.TryChangeShuffleActiveAsync(!(playback.IsShuffleActive ?? false));
+        await PollAsync();
+        if (!accepted) throw new InvalidOperationException("Плеер не принял переключение перемешивания.");
+    }
+    internal static MediaPlaybackAutoRepeatMode NextRepeatMode(MediaPlaybackAutoRepeatMode mode) => mode switch
+    {
+        MediaPlaybackAutoRepeatMode.List => MediaPlaybackAutoRepeatMode.Track,
+        MediaPlaybackAutoRepeatMode.Track => MediaPlaybackAutoRepeatMode.None,
+        _ => MediaPlaybackAutoRepeatMode.List
+    };
+    public async Task CycleRepeatAsync()
+    {
+        var target = ResolveSession();
+        if (target == null) return;
+        var playback = target.GetPlaybackInfo();
+        if (!playback.Controls.IsRepeatEnabled) throw new InvalidOperationException("Этот плеер не поддерживает переключение повтора.");
+        var accepted = await target.TryChangeAutoRepeatModeAsync(NextRepeatMode(playback.AutoRepeatMode ?? MediaPlaybackAutoRepeatMode.None));
+        await PollAsync();
+        if (!accepted) throw new InvalidOperationException("Плеер не принял переключение повтора.");
+    }
     public void Dispose() { disposed = true; Interlocked.Increment(ref pollGeneration); audioStarted = analysisRequested = false; analysisEnabled = false; StopAudio(); ClearAudio(); }
 }

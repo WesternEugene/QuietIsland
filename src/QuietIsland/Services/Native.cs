@@ -20,6 +20,7 @@ internal static class Native
     [DllImport("user32.dll")] public static extern bool UnregisterHotKey(IntPtr hwnd, int id);
     [DllImport("user32.dll")] public static extern bool AddClipboardFormatListener(IntPtr hwnd);
     [DllImport("user32.dll")] public static extern bool RemoveClipboardFormatListener(IntPtr hwnd);
+    [DllImport("user32.dll")] public static extern uint GetClipboardSequenceNumber();
     [DllImport("user32.dll")] public static extern IntPtr GetWindowLongPtrW(IntPtr hwnd, int index);
     [DllImport("user32.dll")] public static extern IntPtr SetWindowLongPtrW(IntPtr hwnd, int index, IntPtr value);
     [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter, int x, int y, int cx, int cy, uint flags);

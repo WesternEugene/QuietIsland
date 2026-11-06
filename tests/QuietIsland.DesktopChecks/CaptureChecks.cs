@@ -302,7 +302,12 @@ internal static class CaptureChecks
         });
         await Check("screenshot_saves_png_and_copies_without_opening_editor", async () =>
         {
-            var originalClipboard = Clipboard.GetDataObject();
+            // Materialize supported formats before replacing the clipboard. The
+            // original OLE IDataObject can lose its owner once SetImage runs.
+            var originalClipboard = new DataObject();
+            if (Clipboard.ContainsText()) originalClipboard.SetText(Clipboard.GetText());
+            if (Clipboard.ContainsImage() && Clipboard.GetImage() is { } originalImage) originalClipboard.SetImage(originalImage);
+            if (Clipboard.ContainsFileDropList()) originalClipboard.SetFileDropList(Clipboard.GetFileDropList());
             var main = new MainWindow(context, true);
             var before = Application.Current.Windows.Cast<Window>().ToHashSet();
             typeof(MainWindow).GetProperty("SelectionForChecks", Private)!.SetValue(main,
@@ -326,7 +331,12 @@ internal static class CaptureChecks
             {
                 foreach (var window in Application.Current.Windows.Cast<Window>().Where(x => !before.Contains(x)).ToArray()) window.Close();
                 main.Close();
-                if (originalClipboard != null) Clipboard.SetDataObject(originalClipboard, true);
+                if (originalClipboard != null)
+                    for (var attempt = 0; ; attempt++)
+                    {
+                        try { Clipboard.SetDataObject(originalClipboard, true); break; }
+                        catch (ExternalException) when (attempt < 7) { await Task.Delay(80); }
+                    }
             }
         });
         await Check("uncommitted_redaction_cannot_be_captured", () =>
@@ -362,7 +372,7 @@ internal static class CaptureChecks
         });
         await Check("release_version_is_visible_in_updates", () =>
         {
-            Require(context.Updates.CurrentVersionText == "1.2.0", "The updates UI does not display 1.2.0.");
+            Require(context.Updates.CurrentVersionText == "1.3.0", "The updates UI does not display 1.3.0.");
             return Task.CompletedTask;
         });
         await Check("capture_toolbar_fits_and_renders_with_application_styles", () =>
@@ -398,7 +408,7 @@ internal static class CaptureChecks
                 Call(editor, "SetTool", "select"); Call(selector, "Move", new Point(180, 125));
                 SavePreview(selector, "annotated-window-hover.png", 1280, 800);
                 var result = (CaptureResult)Call(selector, "CreateResult")!;
-                CaptureService.SavePng(result.Image, Path.GetFullPath("artifacts/verification-1.2.0/annotated-result.png"));
+                CaptureService.SavePng(result.Image, Path.GetFullPath("artifacts/verification-1.3.0/annotated-result.png"));
                 Require(result.Image.PixelWidth == 900 && result.Image.PixelHeight == 500, "Final capture includes overlay controls or has the wrong pixel dimensions.");
             }
             finally { selector.Close(); }
@@ -437,7 +447,7 @@ internal static class CaptureChecks
     {
         Layout(selector, width, height);
         var preview = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32); preview.Render((FrameworkElement)selector.Content);
-        CaptureService.SavePng(preview, Path.GetFullPath("artifacts/verification-1.2.0/" + name));
+        CaptureService.SavePng(preview, Path.GetFullPath("artifacts/verification-1.3.0/" + name));
     }
     private static object? Call(object target, string method, params object[] args) => target.GetType().GetMethod(method, Private)!.Invoke(target, args);
     private static T Field<T>(object target, string name) => (T)target.GetType().GetField(name, Private)!.GetValue(target)!;

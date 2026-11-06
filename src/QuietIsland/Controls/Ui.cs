@@ -18,12 +18,14 @@ public static class Ui
     {
         var b = new Button { Content = text, ToolTip = tip ?? text };
         if (primary) { b.SetResourceReference(Control.BackgroundProperty, "Accent"); b.SetResourceReference(Control.ForegroundProperty, "AccentText"); }
+        if (string.IsNullOrEmpty(b.ToolTip as string)) b.ToolTip = null;
         ActionContent(b, text); b.Click += (_, _) => action(); return b;
     }
     public static Button AsyncButton(string text, Func<Task> action, Action<Exception>? error = null, bool primary = false)
     {
         var b = new Button { Content = text, ToolTip = text };
         if (primary) { b.SetResourceReference(Control.BackgroundProperty, "Accent"); b.SetResourceReference(Control.ForegroundProperty, "AccentText"); }
+        if (string.IsNullOrEmpty(b.ToolTip as string)) b.ToolTip = null;
         ActionContent(b, text); b.Click += async (_, _) => { b.IsEnabled = false; try { await action(); } catch (Exception e) { if (error != null) error(e); else Services.Log.Write("UI action", e); } finally { b.IsEnabled = true; } };
         return b;
     }

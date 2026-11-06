@@ -34,16 +34,22 @@ public static class Dialogs
         window.Loaded += (_, _) => { name.Focus(); name.SelectAll(); };
         ShowModal(window); return result;
     }
-    public static string? Ask(string title, string label, string initial = "")
+    public static string? Ask(string title, string label, string initial = "", Window? owner = null)
     {
         var input = Ui.Input(label, initial, true); input.Height = 80; string? result = null;
-        var window = Base(title); window.Content = Ui.Card(Ui.Stack(Ui.Heading(title), Ui.Text(label, 12, "Muted"), input, Ui.Row(Ui.Button("Сохранить", () => { result = input.Text; window.DialogResult = true; }, true), Ui.Button("Отмена", () => window.DialogResult = false))), 22);
+        var window = Base(title);
+        void Save() { result = input.Text; window.DialogResult = true; }
+        var save = Ui.Button("Сохранить", Save, true); save.IsDefault = true;
+        input.PreviewKeyDown += (_, e) => { if (e.Key == System.Windows.Input.Key.Enter && System.Windows.Input.Keyboard.Modifiers == System.Windows.Input.ModifierKeys.None) { e.Handled = true; Save(); } };
+        window.Content = Ui.Card(Ui.Stack(Ui.Heading(title), Ui.Text(label, 12, "Muted"), input, Ui.Row(save, Ui.Button("Отмена", () => window.DialogResult = false))), 22);
+        if (owner != null) { window.Owner = owner; window.WindowStartupLocation = WindowStartupLocation.CenterOwner; }
         window.Loaded += (_, _) => { input.Focus(); input.SelectAll(); }; ShowModal(window); return result;
     }
     public static string? Choose(string title, string[] values)
     {
         var list = new ComboBox { ItemsSource = values, SelectedIndex = 0, Margin = new Thickness(0, 12, 0, 12) }; string? result = null; var window = Base(title);
-        window.Content = Ui.Card(Ui.Stack(Ui.Heading(title), list, Ui.Row(Ui.Button("Выбрать", () => { result = list.SelectedItem as string; window.DialogResult = true; }, true), Ui.Button("Отмена", () => window.DialogResult = false))), 22); ShowModal(window); return result;
+        var choose = Ui.Button("Выбрать", () => { result = list.SelectedItem as string; window.DialogResult = true; }, true); choose.IsDefault = true;
+        window.Content = Ui.Card(Ui.Stack(Ui.Heading(title), list, Ui.Row(choose, Ui.Button("Отмена", () => window.DialogResult = false))), 22); ShowModal(window); return result;
     }
     private static Window Base(string title)
     {

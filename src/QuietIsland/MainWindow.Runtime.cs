@@ -51,12 +51,12 @@ public partial class MainWindow
     }
     private void UpdateRuntimeVisibility(DateTime now)
     {
-        if (snapshot) return;
+        if (snapshot && mirrorOwner == null) return;
         var fullscreen = c.Settings.HideFullscreen && !fullscreenOverride && Native.IsFullscreen(Screen);
         var excluded = c.Settings.ExcludedApps.Split([',', ';'], StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).Any(x => Native.ForegroundProcess().Equals(x.Replace(".exe", "", StringComparison.OrdinalIgnoreCase), StringComparison.OrdinalIgnoreCase));
-        overlayBlocked = !timerAlarm && (fullscreen || excluded);
+        overlayBlocked = !HasAlarm && (fullscreen || excluded);
         if (overlayBlocked && expanded && !DragHeld) Collapse();
-        var autohide = !expanded && !timerAlarm && c.Settings.AutoHide && !Root.IsMouseOver && !DragHeld;
+        var autohide = !expanded && !HasAlarm && c.Settings.AutoHide && !Root.IsMouseOver && !DragHeld;
         if (!overlayBlocked && Native.GetCursorPos(out var pointer) && pointer.Y >= Screen.Bounds.Top && pointer.Y <= Screen.Bounds.Top + 4 && Math.Abs(pointer.X - (Screen.Bounds.Left + Screen.Bounds.Width / 2)) < 150)
         { autohide = false; lastInside = now; }
         var hidden = hiddenByUser || overlayBlocked || autohide && (now - lastInside).TotalSeconds > 1;

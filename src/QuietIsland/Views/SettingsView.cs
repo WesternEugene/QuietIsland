@@ -34,6 +34,7 @@ public sealed class SettingsView : IslandView
             ColorField("Акцент интерфейса", s.AccentColor, ["#FF8B81", "#FFC56C", "#B4A4FF", "#80CDF5", "#7CDEBA"], x => s.AccentColor = x),
             Ui.Text("Движение и поведение", 14, bold: true),
             Range("Скорость раскрытия и сворачивания", s.AnimationSpeed, .6, 1.8, .05, "×", x => s.AnimationSpeed = x),
+            Range("Открывать после наведения курсора", s.HoverOpenDelayMs, 0, 5000, 50, " мс", x => s.HoverOpenDelayMs = x),
             Range("Сворачивать после ухода курсора", s.HoverCloseDelayMs, 80, 2000, 20, " мс", x => s.HoverCloseDelayMs = x),
             Ui.Text("Открытое меню, закрепление и поиск с клавиатуры удерживают панель. Цвет и форма не меняются при запуске музыки.", 11, "Muted")));
         stack.Children.Add(Section("СОСТАВ И МУЗЫКА",
@@ -47,17 +48,24 @@ public sealed class SettingsView : IslandView
             Check("Жидкая кромка при музыке", s.MusicAnimationEnabled, x => s.MusicAnimationEnabled = x),
             Check("Брать цвет музыкальной кромки из обложки", s.UseAlbumAccent, x => s.UseAlbumAccent = x),
             Range("Чувствительность к звуку", s.MusicSensitivity, .25, 3, .05, "×", x => s.MusicSensitivity = x),
-            Range("Амплитуда нижнего контура", s.MusicAmplitude, 0, 12, .5, " px", x => s.MusicAmplitude = x)));
+            Range("Амплитуда нижнего контура", s.MusicAmplitude, 0, 12, .5, " px", x => s.MusicAmplitude = x),
+            Check("Приостанавливать медиа на время сигнала таймера", s.PauseMediaForTimer, x => s.PauseMediaForTimer = x),
+            Check("Приостанавливать медиа на время напоминания", s.PauseMediaForReminder, x => s.PauseMediaForReminder = x),
+            Check("Приостанавливать музыку при другом источнике звука", s.PauseMediaForOtherAudio, x => s.PauseMediaForOtherAudio = x),
+            Text("Прерывающие программы · пусто — все; список через запятую", s.AudioInterruptApps, x => s.AudioInterruptApps = x),
+            Check("Возобновлять медиа после прерывания", s.ResumeInterruptedMedia, x => s.ResumeInterruptedMedia = x),
+            Range("Задержка возобновления медиа", s.MediaResumeDelayMs, 0, 10000, 100, " мс", x => s.MediaResumeDelayMs = x),
+            Ui.Text("Возобновляется только воспроизведение, приостановленное островом. Ручное управление в карточке отменяет автовозобновление. Поддержка паузы зависит от плеера; для голосовых можно указать Telegram.", 11, "Muted")));
         stack.Children.Add(Section("ВЕРХНЯЯ ПАНЕЛЬ", Ui.Text("Выберите вкладки и их порядок. Стрелки перемещают включённые вкладки.", 12, "Muted"), HeaderEditor(), Check("Название активной вкладки", s.HeaderLabels, x => s.HeaderLabels = x), Check("Часы", s.HeaderClock, x => s.HeaderClock = x), Check("Диктовка", s.HeaderDictation, x => s.HeaderDictation = x), Check("Закрепление", s.HeaderPin, x => s.HeaderPin = x), Check("Кнопка сворачивания", s.HeaderClose, x => s.HeaderClose = x)));
         stack.Children.Add(Section("РЕСУРСЫ", Check("Автоматически снижать нагрузку при занятом компьютере", s.AutoReduceResources, x => s.AutoReduceResources = x), Text("Всегда экономить в программах · имена через запятую", s.ResourceHeavyApps, x => s.ResourceHeavyApps = x), Ui.Text("При высокой загрузке CPU или активном ресурсоёмком приложении снижается частота фоновых обновлений, анализа звука и визуализатора. Скрытая чёлка не рисует музыку и не анализирует звук. Таймер и горячие клавиши продолжают работать.", 12, "Muted")));
-        stack.Children.Add(Section("ОСТРОВ", autoStart, Ui.Text("Автоматически открывать остров после входа в учётную запись Windows. Эта же опция доступна в установщике.", 11, "Muted"), Combo("Тема", ["Dark", "Light", "System"], s.Theme, x => s.Theme = x), Number("Масштаб · 80–200%", (s.Scale * 100).ToString("0"), x => s.Scale = Math.Clamp(x, 80, 200) / 100), Number("Прозрачность пилюли · 45–100%", (s.PillOpacity * 100).ToString("0"), x => s.PillOpacity = Math.Clamp(x, 45, 100) / 100), Number("Прозрачность панели · 45–100%", (s.PanelOpacity * 100).ToString("0"), x => s.PanelOpacity = Math.Clamp(x, 45, 100) / 100), Number("Монитор · начиная с 1", (s.Monitor + 1).ToString(), x => s.Monitor = Math.Clamp((int)x - 1, 0, System.Windows.Forms.Screen.AllScreens.Length - 1)), Number("Отступ сверху · пиксели", s.TopOffset.ToString("0"), x => s.TopOffset = Math.Clamp(x, 0, 200)), Check("Автоскрытие за верхний край", s.AutoHide, x => s.AutoHide = x), Check("Прятать в полноэкранных программах", s.HideFullscreen, x => s.HideFullscreen = x), Check("Сквозные клики в свёрнутом виде · открытие горячей клавишей", s.ClickThrough, x => s.ClickThrough = x), Check("Исключать остров из захвата экрана", s.HideInCapture, x => s.HideInCapture = x), Text("Прятать в программах · имена через запятую", s.ExcludedApps, x => s.ExcludedApps = x), Ui.Text("Контур статичен. Жидкая анимация включается автоматически только при музыке.", 11, "Muted")));
-        stack.Children.Add(Section("БУФЕР И КЛАВИШИ", Check("История буфера обмена", s.ClipboardEnabled, x => s.ClipboardEnabled = x), Check("Вставлять запись в предыдущее окно при клике", s.ClipboardAutoPaste, x => s.ClipboardAutoPaste = x), Number("Число незакреплённых записей · 20–1000", s.ClipboardLimit.ToString(), x => s.ClipboardLimit = Math.Clamp((int)x, 20, 1000)), Check("Использовать Alt+Space, если сочетание свободно", s.HotkeyAltSpace, x => s.HotkeyAltSpace = x), Ui.Text("Ctrl+Alt+Space — поиск при занятом Alt+Space\nCtrl+Alt+V — буфер · Ctrl+Alt+N — заметки\nPrint Screen — весь экран · Ctrl+Print Screen — область\nCtrl+Alt+S — скриншот · Ctrl+Alt+R — запись / стоп\nCtrl+Alt+D — диктовка / стоп\nКлавиши отдельных ярлыков задаются в поиске через контекстное меню ярлыка.", 11, "Muted")));
+        stack.Children.Add(Section("ОСТРОВ", autoStart, Ui.Text("Автоматически открывать остров после входа в учётную запись Windows. Эта же опция доступна в установщике.", 11, "Muted"), Combo("Тема", ["Dark", "Light", "System"], s.Theme, x => s.Theme = x), Number("Масштаб · 80–200%", (s.Scale * 100).ToString("0"), x => s.Scale = Math.Clamp(x, 80, 200) / 100), Number("Прозрачность пилюли · 45–100%", (s.PillOpacity * 100).ToString("0"), x => s.PillOpacity = Math.Clamp(x, 45, 100) / 100), Number("Прозрачность панели · 45–100%", (s.PanelOpacity * 100).ToString("0"), x => s.PanelOpacity = Math.Clamp(x, 45, 100) / 100), DisplayPicker(), Number("Отступ сверху · пиксели", s.TopOffset.ToString("0"), x => s.TopOffset = Math.Clamp(x, 0, 200)), Check("Автоскрытие за верхний край", s.AutoHide, x => s.AutoHide = x), Check("Прятать в полноэкранных программах", s.HideFullscreen, x => s.HideFullscreen = x), Check("Сквозные клики в свёрнутом виде · открытие горячей клавишей", s.ClickThrough, x => s.ClickThrough = x), Check("Исключать остров из захвата экрана", s.HideInCapture, x => s.HideInCapture = x), Text("Прятать в программах · имена через запятую", s.ExcludedApps, x => s.ExcludedApps = x), Ui.Text("Контур статичен. Жидкая анимация включается автоматически только при музыке.", 11, "Muted")));
+        stack.Children.Add(Section("БУФЕР И КЛАВИШИ", Check("История буфера обмена", s.ClipboardEnabled, x => s.ClipboardEnabled = x), Check("Вставлять запись в предыдущее окно при клике", s.ClipboardAutoPaste, x => s.ClipboardAutoPaste = x), Number("Число незакреплённых записей · 20–1000", s.ClipboardLimit.ToString(), x => s.ClipboardLimit = Math.Clamp((int)x, 20, 1000)), ShortcutEditor(), Ui.Text("Введите сочетание и нажмите «Назначить». Пустое поле отключает действие. Занятое сочетание не заменяется автоматически. Клавиши ярлыков задаются через их контекстное меню на главной.", 11, "Muted")));
         var endpoint = Text("API URL · OpenAI-совместимый, включая /v1", s.AiEndpoint, x => s.AiEndpoint = x.Trim()); var modelBox = Ui.Input("Модель", s.AiModel); BindText(modelBox, () => s.AiModel = modelBox.Text.Trim());
         stack.Children.Add(Section("ИИ", endpoint, Ui.Field("Модель", modelBox), Secret("API ключ · пусто — сохранить прежний", x => s.AiKeyEncrypted = DesktopState.Protect(x)), Ui.AsyncButton("Получить модели", async () => { Save(); var models = await C.Ai.ModelsAsync(); if (models.Length == 0) C.Notify("У сервиса пока нет моделей"); else { var selected = Windows.Dialogs.Choose("Выберите модель", models); if (selected != null) { modelBox.Text = selected; s.AiModel = selected; C.State.Touch(); } } }, C.Error), Text("Системная инструкция", s.AiSystemPrompt, x => s.AiSystemPrompt = x, true), Ui.Button("Удалить API ключ", () => { Change(() => s.AiKeyEncrypted = ""); C.Notify("Ключ удалён · ИИ отключён"); }), Ui.Text("Без API ключа чат и ИИ-действия отключены. Укажите URL совместимого API, модель и ключ; это требуется и для локального сервиса. ИИ-модель не встроена в приложение. Ключи защищены DPAPI текущего пользователя Windows.", 11, "Muted")));
         stack.Children.Add(Section("ДИКТОВКА", Check("Использовать установленный локальный речевой движок Windows", s.SpeechPreferLocal, x => s.SpeechPreferLocal = x), Text("Whisper-совместимый API URL · включая /v1", s.SpeechEndpoint, x => s.SpeechEndpoint = x.Trim()), Text("Модель распознавания", s.SpeechModel, x => s.SpeechModel = x.Trim()), Secret("Ключ речевого сервиса", x => s.SpeechKeyEncrypted = DesktopState.Protect(x)), Ui.Button("Удалить ключ речевого сервиса", () => { Change(() => s.SpeechKeyEncrypted = ""); C.Notify("Ключ речевого сервиса удалён"); }), Ui.Text("Локальный речевой движок по умолчанию выключен и запускается только при диктовке. Для облачной диктовки нужны API URL и ключ. До настройки микрофон не включается. Временный WAV удаляется после запроса.", 11, "Muted")));
         var microphoneId = Ui.Input("ID микрофона · пусто — по умолчанию Windows", s.MicrophoneId);
         BindText(microphoneId, () => s.MicrophoneId = microphoneId.Text.Trim());
-        stack.Children.Add(Section("ЗАПИСЬ И ЗВУК", Text("Папка снимков и записей", s.CaptureFolder, x => s.CaptureFolder = Path.GetFullPath(x)), Text("FFmpeg · команда или полный путь", s.FfmpegPath, x => s.FfmpegPath = x.Trim()), Combo("Кадров в секунду", ["30", "60"], s.RecordingFps.ToString(), x => s.RecordingFps = int.Parse(x)), Check("Высокое качество видео", s.RecordingHighQuality, x => s.RecordingHighQuality = x), Check("Записывать системный звук в MP4", s.RecordSystemAudio, x => s.RecordSystemAudio = x), Ui.Field("ID микрофона · пусто — по умолчанию Windows", microphoneId), Ui.AsyncButton("Список микрофонов", () => { var devices = C.System.AudioDevices(NAudio.CoreAudioApi.DataFlow.Capture); var choice = Windows.Dialogs.Choose("Выберите микрофон", devices.Select(x => x.Name).Prepend("По умолчанию").ToArray()); if (choice != null) { microphoneId.Text = devices.FirstOrDefault(x => x.Name == choice).Id ?? ""; C.Notify("Микрофон выбран."); } return Task.CompletedTask; }, C.Error)));
+        stack.Children.Add(Section("ЗАПИСЬ И ЗВУК", Text("Папка снимков и записей", s.CaptureFolder, x => s.CaptureFolder = Path.GetFullPath(x)), Text("FFmpeg · команда или полный путь", s.FfmpegPath, x => s.FfmpegPath = x.Trim()), Combo("Кадров в секунду", ["30", "60"], s.RecordingFps.ToString(), x => s.RecordingFps = int.Parse(x)), Check("Высокое качество видео", s.RecordingHighQuality, x => s.RecordingHighQuality = x), Check("Записывать системный звук в MP4", s.RecordSystemAudio, x => s.RecordSystemAudio = x), Check("Записывать курсор", s.RecordCursor, x => s.RecordCursor = x), Ui.Field("ID микрофона · пусто — по умолчанию Windows", microphoneId), Ui.AsyncButton("Список микрофонов", () => { var devices = C.System.AudioDevices(NAudio.CoreAudioApi.DataFlow.Capture); var choice = Windows.Dialogs.Choose("Выберите микрофон", devices.Select(x => x.Name).Prepend("По умолчанию").ToArray()); if (choice != null) { microphoneId.Text = devices.FirstOrDefault(x => x.Name == choice).Id ?? ""; C.Notify("Микрофон выбран."); } return Task.CompletedTask; }, C.Error)));
         stack.Children.Add(Section("CLAUDE CODE / CODEX", Check("Локальный мост агентов", s.BridgeEnabled, x => s.BridgeEnabled = x), Number("Порт localhost", s.BridgePort.ToString(), x => s.BridgePort = Port(x)), Ui.Text("При отсутствии ответа запрос автоматически отклоняется. Подключение хуков и app-server описано в integrations/README.md. Настройки агентов приложение самостоятельно не меняет.", 11, "Muted"), Ui.Button("Путь к токену моста", () => { System.Windows.Clipboard.SetText(C.Agents.TokenFile); C.Notify("Путь к файлу токена скопирован"); })));
         stack.Children.Add(Section("OBS WEBSOCKET 5", Check("Подключаться к OBS на этом компьютере", s.ObsEnabled, x => s.ObsEnabled = x), Number("Порт OBS", s.ObsPort.ToString(), x => s.ObsPort = Port(x)), Secret("Пароль OBS WebSocket", x => s.ObsPasswordEncrypted = DesktopState.Protect(x)), Ui.Text("В OBS: Инструменты → Настройки сервера WebSocket. Пароль нужен только при включённой авторизации.", 11, "Muted")));
         updates = new(c, main);
@@ -68,6 +76,50 @@ public sealed class SettingsView : IslandView
         Content = root; SelectCategory(Categories[0]);
     }
     private static int Port(double number) => number is >= 1024 and <= 65535 && number == Math.Truncate(number) ? (int)number : throw new InvalidOperationException("Порт должен быть целым числом от 1024 до 65535");
+    private UIElement DisplayPicker()
+    {
+        var screens = System.Windows.Forms.Screen.AllScreens;
+        var selected = C.Settings.IslandDisplays.Count == 0
+            ? new HashSet<string>([screens[Math.Clamp(C.Settings.Monitor, 0, screens.Length - 1)].DeviceName], StringComparer.OrdinalIgnoreCase)
+            : C.Settings.IslandDisplays.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var panel = Ui.Stack(Ui.Text("Экраны для чёлки", 13, bold: true), Ui.Text("Отметьте один или несколько экранов. Номера и разрешения помогают их различить.", 11, "Muted"));
+        for (var i = 0; i < screens.Length; i++)
+        {
+            var screen = screens[i];
+            var check = new CheckBox { Content = $"Экран {i + 1} · {screen.Bounds.Width} × {screen.Bounds.Height}" + (screen.Primary ? " · основной" : ""), IsChecked = selected.Contains(screen.DeviceName) };
+            check.Click += (_, _) =>
+            {
+                if (check.IsChecked == true) selected.Add(screen.DeviceName);
+                else { if (selected.Count(id => screens.Any(x => x.DeviceName == id)) <= 1) { check.IsChecked = true; return; } selected.Remove(screen.DeviceName); }
+                Change(() => { C.Settings.IslandDisplays = screens.Where(x => selected.Contains(x.DeviceName)).Select(x => x.DeviceName).ToList(); C.Settings.Monitor = Array.FindIndex(screens, x => x.DeviceName == C.Settings.IslandDisplays[0]); });
+            };
+            panel.Children.Add(check);
+        }
+        return panel;
+    }
+    private UIElement ShortcutEditor()
+    {
+        var panel = Ui.Stack(); var bindings = GlobalShortcuts.Bindings(C.Settings);
+        foreach (var definition in GlobalShortcuts.Definitions)
+        {
+            var input = Ui.Input("Например Ctrl+Shift+S", bindings.GetValueOrDefault(definition.Key, ""));
+            input.Margin = new Thickness(0, 0, 8, 0);
+            System.Windows.Automation.AutomationProperties.SetName(input, definition.Title);
+            var feedback = Ui.Text(window.ShortcutErrors.GetValueOrDefault(definition.Key) ?? "", 11, "Muted"); feedback.TextWrapping = TextWrapping.Wrap;
+            var row = new DockPanel();
+            var assign = Ui.Button("Назначить", () =>
+            {
+                var value = input.Text.Trim();
+                var error = GlobalShortcuts.ValidationError(C.Settings, definition.Key, value, C.State.Data.Launcher);
+                if (error != null) { feedback.Text = error; return; }
+                Change(() => { bindings[definition.Key] = value; window.InvalidateHotkeys(); });
+                feedback.Text = window.ShortcutErrors.GetValueOrDefault(definition.Key) ?? (value.Length == 0 ? "Сочетание отключено" : "Назначено: " + value);
+            });
+            assign.Margin = new Thickness(0); DockPanel.SetDock(assign, Dock.Right); row.Children.Add(assign); row.Children.Add(input);
+            panel.Children.Add(Ui.Field(definition.Title, Ui.Stack(row, feedback)));
+        }
+        return panel;
+    }
     private UIElement Section(string title, params UIElement[] content)
     {
         var name = title switch { "ВИД ОСТРОВА" => "Вид острова", "СОСТАВ И МУЗЫКА" => "Состав и музыка", "ВЕРХНЯЯ ПАНЕЛЬ" => "Верхняя панель", "РЕСУРСЫ" => "Ресурсы", "ОСТРОВ" => "Общие", "БУФЕР И КЛАВИШИ" => "Буфер и клавиши", "ИИ" => "Искусственный интеллект", "ДИКТОВКА" => "Диктовка", "ЗАПИСЬ И ЗВУК" => "Запись и звук", "CLAUDE CODE / CODEX" => "Агенты", "ОБНОВЛЕНИЯ" => "Обновления", _ => "OBS" };
