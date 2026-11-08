@@ -44,6 +44,7 @@ public partial class MainWindow : Window
     private readonly TranslateTransform panelShift = new();
     private readonly RectangleGeometry compactClip = new(), compactTextClip = new();
     private readonly TranslateTransform compactShift = new(), compactMetaShift = new();
+    private readonly OverflowLabel compactTitleOverflow, compactSubtitleOverflow;
     private double compactMetaWidth, compactPrefixWidth;
     private double compactWidth = 190;
     private double compactHeight = 52;
@@ -69,6 +70,10 @@ public partial class MainWindow : Window
     public MainWindow(IslandContext context, bool forSnapshot = false)
     {
         c = context; snapshot = forSnapshot; InitializeComponent();
+        CompactLines.Children.Clear();
+        compactTitleOverflow = new(CompactTitle); compactSubtitleOverflow = new(CompactSubtitle);
+        compactTitleOverflow.HorizontalAlignment = compactSubtitleOverflow.HorizontalAlignment = HorizontalAlignment.Left;
+        CompactLines.Children.Add(compactTitleOverflow); CompactLines.Children.Add(compactSubtitleOverflow);
         motion = new(Fluid); Panel.Clip = panelClip; Panel.RenderTransform = panelShift;
         Compact.Clip = compactClip; Compact.RenderTransform = compactShift; CompactLines.Clip = compactTextClip; CompactMeta.RenderTransform = compactMetaShift;
         popupGuard = new(Root); InputBadge.RenderTransform = inputShift; CompactCoverFallback.Content = Icons.Colored("music", 17);
@@ -203,6 +208,9 @@ public partial class MainWindow : Window
             case 6: _ = DictateAsync(); break;
             case 7: _ = ScreenshotDesktopAsync(); break;
             case 8: _ = ScreenshotAsync("shot"); break;
+            case 9: _ = ScreenshotAsync("color"); break;
+            case 10: _ = ScreenshotAsync("ocr"); break;
+            case 11: _ = ToggleRecordingAsync(fullScreen: true); break;
             default:
                 var index = id - 100;
                 if (index >= 0 && index < c.State.Data.Launcher.Count) { try { SystemService.Open(c.State.Data.Launcher[index].Target); } catch (Exception e) { c.Error(e); } }
@@ -215,7 +223,7 @@ public partial class MainWindow : Window
     private void RegisterHotkeys()
     {
         if (hwnd == null || mirrorOwner != null) return;
-        var bindings = GlobalShortcuts.Bindings(c.Settings);
+        var bindings = GlobalShortcuts.Bindings(c.Settings, c.State.Data.Launcher);
         var signature = string.Join(";", GlobalShortcuts.Definitions.Select(x => x.Key + "=" + bindings.GetValueOrDefault(x.Key, ""))) + "|" + string.Join(";", c.State.Data.Launcher.Select(x => x.Target + ":" + x.Hotkey));
         if (signature == hotkeyKey) return; hotkeyKey = signature;
         foreach (var id in registered) Native.UnregisterHotKey(hwnd.Handle, id); registered.Clear();
@@ -477,9 +485,12 @@ public partial class MainWindow : Window
         CompactCoverHost.Visibility = coverVisible ? Visibility.Visible : Visibility.Collapsed;
         if (!ReferenceEquals(CompactCover.Source, media.Cover)) CompactCover.Source = media.Cover;
         CompactCoverFallback.Visibility = media.Cover == null ? Visibility.Visible : Visibility.Collapsed;
-        CompactTitle.Text = message.Length > 0 ? message : timerAlarm ? "Таймер завершён" : c.Recording.IsStarting ? "Запускаю запись…" : c.Recording.IsFinalizing ? "Сохраняю запись…" : c.Recording.IsRecording ? "Запись " + Ui.Time((DateTimeOffset.Now - c.Recording.Started).TotalSeconds) : c.Speech.IsListening ? "Слушаю…" : media.HasMedia && c.Settings.ShowSongTitle ? media.Title : "";
-        CompactSubtitle.Text = timerAlarm && message.Length == 0 ? "Нажмите, чтобы открыть" : media.HasMedia && c.Settings.ShowSongTitle && message.Length == 0 && !c.Recording.IsRecording && !c.Speech.IsListening ? media.Artist : "";
+        var mediaTitleVisible = media.HasMedia && c.Settings.ShowSongTitle && message.Length == 0 && !timerAlarm
+            && !c.Recording.IsStarting && !c.Recording.IsFinalizing && !c.Recording.IsRecording && !c.Speech.IsListening;
+        CompactTitle.Text = message.Length > 0 ? message : timerAlarm ? "Таймер завершён" : c.Recording.IsStarting ? "Запускаю запись…" : c.Recording.IsFinalizing ? "Сохраняю запись…" : c.Recording.IsRecording ? "Запись " + Ui.Time((DateTimeOffset.Now - c.Recording.Started).TotalSeconds) : c.Speech.IsListening ? "Слушаю…" : mediaTitleVisible ? media.Title : "";
+        CompactSubtitle.Text = timerAlarm && message.Length == 0 ? "Нажмите, чтобы открыть" : mediaTitleVisible ? media.Artist : "";
         CompactSubtitle.Visibility = CompactSubtitle.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        compactSubtitleOverflow.Visibility = CompactSubtitle.Visibility;
         CompactLines.Visibility = CompactTitle.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         CompactWeather.Text = c.Settings.ShowWeather && c.Weather.Current is { } weather ? $"{weather.Temperature:0}°" : "";
         CompactWeatherGroup.Visibility = CompactWeather.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -513,17 +524,31 @@ public partial class MainWindow : Window
             SetCompactSize(Math.Max(alarmWidth, c.Settings.CompactMinWidth), Math.Max(72, c.Settings.CompactHeight + 16));
             return;
         }
-        var measureKey = icon + "|" + ClockText.Text + "|" + CompactTimer.Visibility + CompactTimerText.Text + coverVisible + CompactTitle.Text + "\n" + CompactSubtitle.Text + "\n" + CompactWeather.Text + inputState;
+        var measureKey = icon + "|" + ClockText.Text + "|" + CompactTimer.Visibility + CompactTimerText.Text + coverVisible + mediaTitleVisible + CompactTitle.Text + "\n" + CompactSubtitle.Text + "\n" + CompactWeather.Text + inputState;
         if (measureKey != compactMeasureKey)
         {
             compactMeasureKey = measureKey;
-            double Measure(TextBlock text) => new FormattedText(text.Text, System.Globalization.CultureInfo.CurrentUICulture, FlowDirection.LeftToRight, new Typeface(text.FontFamily, text.FontStyle, text.FontWeight, text.FontStretch), text.FontSize, Brushes.White, VisualTreeHelper.GetDpi(this).PixelsPerDip).WidthIncludingTrailingWhitespace;
+            double Measure(TextBlock text, int maxCharacters = 0)
+            {
+                var value = text.Text;
+                if (maxCharacters > 0)
+                {
+                    var characters = System.Globalization.StringInfo.ParseCombiningCharacters(value);
+                    if (characters.Length > maxCharacters) value = value[..characters[maxCharacters]];
+                }
+                return new FormattedText(value, System.Globalization.CultureInfo.CurrentUICulture, FlowDirection.LeftToRight, new Typeface(text.FontFamily, text.FontStyle, text.FontWeight, text.FontStretch), text.FontSize, Brushes.White, VisualTreeHelper.GetDpi(this).PixelsPerDip).WidthIncludingTrailingWhitespace;
+            }
             compactPrefixWidth = Math.Ceiling((icon.Length > 0 ? 22 : 0) + Measure(ClockText)) + (timerEnd != null ? Math.Ceiling(40 + Measure(CompactTimerText)) : 0) + (coverVisible ? 40 : 0);
             compactMetaWidth = (c.Settings.ShowInputStatus ? Math.Ceiling(Measure(InputLayout) + (c.Activity.CapsLock ? Measure(InputCaps) + 5 : 0) + 10) : 0) + (CompactWeather.Text.Length > 0 ? Math.Ceiling(Measure(CompactWeather) + 33) : 0);
             if (compactMetaWidth > 0) compactMetaWidth += 12;
             CompactMeta.Visibility = compactMetaWidth > 0 ? Visibility.Visible : Visibility.Collapsed;
-            var details = CompactLines.Visibility == Visibility.Visible ? Math.Ceiling(Math.Max(Measure(CompactTitle), Measure(CompactSubtitle))) + 12 : 0;
+            var titleWidth = Math.Ceiling(Measure(CompactTitle, mediaTitleVisible ? 10 : 0));
+            var subtitleWidth = Math.Ceiling(Measure(CompactSubtitle, mediaTitleVisible ? 12 : 0));
+            var details = CompactLines.Visibility == Visibility.Visible ? Math.Max(titleWidth, subtitleWidth) + 12 : 0;
             var targetWidth = Math.Clamp(34 + 28 + compactPrefixWidth + details + compactMetaWidth + 2, c.Settings.CompactMinWidth, c.Settings.CompactMaxWidth);
+            var availableTextWidth = Math.Max(0, targetWidth - 34 - 28 - compactPrefixWidth - compactMetaWidth - CompactLines.Margin.Left - CompactLines.Margin.Right);
+            compactTitleOverflow.Width = Math.Min(titleWidth, availableTextWidth); compactSubtitleOverflow.Width = Math.Min(subtitleWidth, availableTextWidth);
+            compactTitleOverflow.Refresh(); compactSubtitleOverflow.Refresh();
             Compact.ToolTip = ClockText.Text + (timerEnd != null ? " · Таймер " + CompactTimerText.Text : "") + "\n" + CompactTitle.Text + (CompactSubtitle.Text.Length > 0 ? "\n" + CompactSubtitle.Text : "");
             SetCompactSize(targetWidth, c.Settings.CompactHeight);
         }
@@ -595,8 +620,9 @@ public partial class MainWindow : Window
             if (bounds is { } area)
             {
                 await c.Recording.StartAsync(area, gif);
-                var stop = c.Settings.HideInCapture ? "Остановка: " + GlobalShortcuts.Label(c.Settings, "recording") + " или меню значка в трее"
-                    : "Нажмите чёлку или " + GlobalShortcuts.Label(c.Settings, "recording") + " для остановки";
+                var stopShortcut = GlobalShortcuts.Label(c.Settings, fullScreen ? "recording-fullscreen" : "recording");
+                var stop = c.Settings.HideInCapture ? "Остановка: " + stopShortcut + " или меню значка в трее"
+                    : "Нажмите чёлку или " + stopShortcut + " для остановки";
                 c.Notify((c.Recording.Warning ?? "Запись началась") + " · " + stop);
             }
         }

@@ -29,6 +29,7 @@ public sealed class DesktopState
         }
         Data.Launcher.RemoveAll(x => x.Name == "Терминал" && x.Target.Equals("powershell.exe", StringComparison.OrdinalIgnoreCase) && x.Group.Length == 0 && x.Hotkey.Length == 0);
         Data.Settings.NormalizeAppearance();
+        GlobalShortcuts.Bindings(Data.Settings, Data.Launcher);
         if (Data.TimerEnd is { } timerEnd && Data.TimerDuration <= 0)
             Data.TimerDuration = Math.Max(1, Data.TimerPaused ? Data.TimerRemaining : (timerEnd - DateTimeOffset.Now).TotalSeconds);
         Data.Settings.ClipboardLimit = Math.Clamp(Data.Settings.ClipboardLimit, 20, 1000);

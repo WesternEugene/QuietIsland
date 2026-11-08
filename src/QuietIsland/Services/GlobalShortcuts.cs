@@ -43,18 +43,32 @@ public static class GlobalShortcuts
         new(2, "clipboard", "Буфер обмена", "Ctrl+Alt+V"),
         new(3, "notes", "Заметки", "Ctrl+Alt+N"),
         new(4, "screenshot", "Снимок области", "Ctrl+Alt+S"),
-        new(5, "recording", "Запись экрана / стоп", "Ctrl+Alt+R"),
+        new(5, "recording", "Запись области / стоп", "Ctrl+Alt+R"),
         new(6, "dictation", "Диктовка / стоп", "Ctrl+Alt+D"),
         new(7, "desktop", "Снимок всех экранов", "PrintScreen"),
-        new(8, "region", "Выбор области (дополнительно)", "Ctrl+PrintScreen")
+        new(8, "region", "Выбор области (дополнительно)", "Ctrl+PrintScreen"),
+        new(9, "color", "Пипетка", "Ctrl+Alt+C"),
+        new(10, "ocr", "Текст с экрана · OCR", "Ctrl+Alt+T"),
+        new(11, "recording-fullscreen", "Запись всего экрана / стоп", "Ctrl+Alt+Shift+R")
     ];
-    public static Dictionary<string, string> Bindings(AppSettings settings)
+    public static Dictionary<string, string> Bindings(AppSettings settings, IEnumerable<LaunchItem>? launchers = null)
     {
         if (settings.GlobalHotkeys == null)
         {
-            settings.GlobalHotkeys = Definitions.ToDictionary(x => x.Key, x => x.Default);
+            settings.GlobalHotkeys = [];
             // Preserve the previously explicit preference, without probing for a substitute.
             if (!settings.HotkeyAltSpace) settings.GlobalHotkeys["search"] = "Ctrl+Alt+Space";
+        }
+        // New defaults must not take over existing global or launcher assignments.
+        var used = new HashSet<ShortcutChord>();
+        foreach (var value in settings.GlobalHotkeys.Values.Concat((launchers ?? []).Select(x => x.Hotkey)))
+            if (ShortcutChord.TryParse(value, out var chord)) used.Add(chord);
+        foreach (var definition in Definitions)
+        {
+            if (settings.GlobalHotkeys.ContainsKey(definition.Key)) continue;
+            var value = definition.Default;
+            if (ShortcutChord.TryParse(value, out var chord) && !used.Add(chord)) value = "";
+            settings.GlobalHotkeys.Add(definition.Key, value);
         }
         return settings.GlobalHotkeys;
     }
@@ -64,8 +78,9 @@ public static class GlobalShortcuts
     {
         if (string.IsNullOrWhiteSpace(value)) return null;
         if (!ShortcutChord.TryParse(value, out var chord)) return "Укажите сочетание, например Ctrl+Shift+S, Alt+Space или F8.";
+        var bindings = Bindings(settings, launchers);
         foreach (var other in Definitions.Where(x => x.Key != key))
-            if (Bindings(settings).TryGetValue(other.Key, out var assigned) && ShortcutChord.TryParse(assigned, out var existing) && existing == chord)
+            if (bindings.TryGetValue(other.Key, out var assigned) && ShortcutChord.TryParse(assigned, out var existing) && existing == chord)
                 return "Это сочетание уже назначено: " + other.Title;
         if (launchers.Any(x => ShortcutChord.TryParse(x.Hotkey, out var existing) && existing == chord)) return "Это сочетание уже назначено закреплённому ярлыку.";
         return null;

@@ -99,7 +99,7 @@ public sealed class SettingsView : IslandView
     }
     private UIElement ShortcutEditor()
     {
-        var panel = Ui.Stack(); var bindings = GlobalShortcuts.Bindings(C.Settings);
+        var panel = Ui.Stack(); var bindings = GlobalShortcuts.Bindings(C.Settings, C.State.Data.Launcher);
         foreach (var definition in GlobalShortcuts.Definitions)
         {
             var input = Ui.Input("Например Ctrl+Shift+S", bindings.GetValueOrDefault(definition.Key, ""));

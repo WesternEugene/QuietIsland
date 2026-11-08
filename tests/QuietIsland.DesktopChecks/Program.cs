@@ -35,6 +35,7 @@ internal static class Program
 
     private static async Task<int> RunAsync()
     {
+        await CompactShortcutChecks.RunAsync(CheckAsync);
         await StartupChecks.RunAsync(CheckAsync);
         await PolishChecks.RunAsync(CheckAsync);
         await MediaFocusChecks.RunAsync(CheckAsync);
