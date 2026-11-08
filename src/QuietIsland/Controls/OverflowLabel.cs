@@ -31,6 +31,13 @@ internal sealed class OverflowLabel : Grid
         if (Math.Abs(next - distance) < .5) return;
         Stop(); distance = next;
         if (distance < 1) return;
+        var edge = Math.Min(10, ActualWidth / 4) / ActualWidth;
+        var fade = new LinearGradientBrush
+        {
+            StartPoint = new Point(0, .5), EndPoint = new Point(1, .5),
+            GradientStops = [new(Colors.Transparent, 0), new(Colors.Black, edge), new(Colors.Black, 1 - edge), new(Colors.Transparent, 1)]
+        };
+        fade.Freeze(); OpacityMask = fade;
         var travel = Math.Clamp(distance / 32, 1.8, 18);
         var ease = new CubicEase { EasingMode = EasingMode.EaseInOut };
         var animation = new DoubleAnimationUsingKeyFrames { RepeatBehavior = RepeatBehavior.Forever };
@@ -41,5 +48,5 @@ internal sealed class OverflowLabel : Grid
         animation.KeyFrames.Add(new EasingDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(2.6 + 2 * travel)), ease));
         shift.BeginAnimation(TranslateTransform.XProperty, animation);
     }
-    private void Stop() { shift.BeginAnimation(TranslateTransform.XProperty, null); shift.X = 0; distance = -1; }
+    private void Stop() { shift.BeginAnimation(TranslateTransform.XProperty, null); shift.X = 0; OpacityMask = null; distance = -1; }
 }

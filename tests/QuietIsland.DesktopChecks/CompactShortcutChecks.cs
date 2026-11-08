@@ -33,6 +33,9 @@ internal static class CompactShortcutChecks
                 Require(title.RenderTransform is TranslateTransform { HasAnimatedProperties: true } && artist.RenderTransform is TranslateTransform { HasAnimatedProperties: true }, "Overflowing compact metadata is not scrolling.");
                 await Task.Delay(1550);
                 Require(((TranslateTransform)title.RenderTransform).X < 0, "Compact title did not move after the initial rest.");
+                var preview = new System.Windows.Media.Imaging.RenderTargetBitmap(744, 72, 96, 96, PixelFormats.Pbgra32);
+                preview.Render(main.RenderRoot);
+                CaptureService.SavePng(preview, Path.GetFullPath("artifacts/verification-1.3.2/compact-marquee-fade.png"));
                 main.Hide(); await Dispatcher.Yield();
                 Require(!((TranslateTransform)title.RenderTransform).HasAnimatedProperties, "Hidden compact metadata keeps scrolling.");
                 SetMedia(context, media with { Title = "Коротко", Artist = "Имя" });
