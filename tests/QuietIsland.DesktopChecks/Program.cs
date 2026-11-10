@@ -35,6 +35,7 @@ internal static class Program
 
     private static async Task<int> RunAsync()
     {
+        await ArtistMetadataChecks.RunAsync(CheckAsync);
         await CompactShortcutChecks.RunAsync(CheckAsync);
         await StartupChecks.RunAsync(CheckAsync);
         await PolishChecks.RunAsync(CheckAsync);

@@ -172,6 +172,7 @@ public class LaunchItem
 public record SearchResult(string Name, string Path, string Kind, long Size = -1, string? Detail = null);
 public record MediaSnapshot(string Title, string Artist, string Album, bool IsPlaying, string Source, double Position, double Duration, System.Windows.Media.Imaging.BitmapSource? Cover = null, bool IsMusic = true)
 {
+    public string? NativeArtist { get; init; }
     public bool HasMedia => !string.IsNullOrWhiteSpace(Title);
     public static MediaSnapshot Empty { get; } = new("", "", "", false, "", 0, 0);
 }

@@ -16,6 +16,14 @@ public readonly record struct AudioFrame(float[] Spectrum, float Peak);
 
 public sealed class MediaService : IDisposable
 {
+    private readonly MusicArtistResolver artistResolver;
+    private readonly bool ownsArtistResolver;
+    private readonly TimeProvider clock = TimeProvider.System;
+    private long positionSampledAt;
+    private CancellationTokenSource? artistLookup;
+    private string artistTrackKey = "", displayArtist = "";
+    public MediaService() { artistResolver = new(); ownsArtistResolver = true; }
+    public MediaService(MusicArtistResolver artistResolver, TimeProvider? clock = null) { this.artistResolver = artistResolver; this.clock = clock ?? TimeProvider.System; }
     private GlobalSystemMediaTransportControlsSessionManager? manager;
     private GlobalSystemMediaTransportControlsSession? session;
     private WasapiLoopbackCapture? loopback;
@@ -247,7 +255,7 @@ public sealed class MediaService : IDisposable
         try
         {
             var selectedSession = ResolveSession();
-            if (selectedSession == null) { if (Fresh()) { session = null; Current = MediaSnapshot.Empty; lastKey = ""; cover = null; ClearPlaybackModes(); ReconcileAnalysis(); Changed?.Invoke(); } return; }
+            if (selectedSession == null) { if (Fresh()) { session = null; PublishTrack(MediaSnapshot.Empty); lastKey = ""; cover = null; ClearPlaybackModes(); ReconcileAnalysis(); Changed?.Invoke(); } return; }
             var properties = await selectedSession.TryGetMediaPropertiesAsync();
             if (!Fresh()) return;
             var playback = selectedSession.GetPlaybackInfo();
@@ -266,14 +274,48 @@ public sealed class MediaService : IDisposable
             var position = timeline.Position.TotalSeconds;
             if (playing) position += Math.Max(0, (DateTimeOffset.Now - timeline.LastUpdatedTime).TotalSeconds);
             session = selectedSession; lastKey = key; cover = selectedCover;
-            Current = new(properties.Title, properties.Artist, properties.AlbumTitle, playing, selectedSession.SourceAppUserModelId,
-                Math.Min(position, timeline.EndTime.TotalSeconds), timeline.EndTime.TotalSeconds, selectedCover, properties.PlaybackType != global::Windows.Media.MediaPlaybackType.Video);
+            PublishTrack(new(properties.Title, properties.Artist, properties.AlbumTitle, playing, selectedSession.SourceAppUserModelId,
+                Math.Min(position, timeline.EndTime.TotalSeconds), timeline.EndTime.TotalSeconds, selectedCover, properties.PlaybackType != global::Windows.Media.MediaPlaybackType.Video));
             CanShuffle = playback.Controls.IsShuffleEnabled; IsShuffleActive = playback.IsShuffleActive ?? false;
             CanRepeat = playback.Controls.IsRepeatEnabled; RepeatMode = playback.AutoRepeatMode ?? MediaPlaybackAutoRepeatMode.None;
             ReconcileAnalysis();
             Changed?.Invoke();
         }
         catch (Exception e) { if (!Fresh()) return; Current = Current with { IsPlaying = false }; ClearPlaybackModes(); ReconcileAnalysis(); Log.Write("Media poll", e); Changed?.Invoke(); }
+    }
+    private void PublishTrack(MediaSnapshot track)
+    {
+        var nativeArtist = track.NativeArtist ?? track.Artist;
+        var key = string.Join("\n", track.Source, track.Title, nativeArtist, track.Album, track.Duration.ToString("R", System.Globalization.CultureInfo.InvariantCulture), track.IsMusic);
+        var changed = key != artistTrackKey;
+        if (changed)
+        {
+            artistLookup?.Cancel(); artistLookup?.Dispose(); artistLookup = null;
+            artistTrackKey = key; displayArtist = MusicArtistResolver.FormatProvided(nativeArtist);
+        }
+        positionSampledAt = clock.GetTimestamp();
+        Current = track with { Artist = displayArtist, NativeArtist = nativeArtist };
+        if (changed && track.HasMedia && track.IsMusic && track.Source.Contains("Spotify", StringComparison.OrdinalIgnoreCase))
+        {
+            artistLookup = new(); _ = ResolveArtistsAsync(track with { Artist = nativeArtist }, key, artistLookup.Token);
+        }
+    }
+    private async Task ResolveArtistsAsync(MediaSnapshot track, string key, CancellationToken cancellationToken)
+    {
+        try
+        {
+            // Coalesce rapid track changes; publish native metadata immediately.
+            await Task.Delay(350, cancellationToken);
+            var artists = await artistResolver.ResolveAsync(track.Title, track.Artist, track.Album, track.Duration, cancellationToken);
+            if (disposed || cancellationToken.IsCancellationRequested || key != artistTrackKey || artists == displayArtist) return;
+            var sampledAt = clock.GetTimestamp();
+            var position = Current.Position + (Current.IsPlaying ? clock.GetElapsedTime(positionSampledAt, sampledAt).TotalSeconds : 0);
+            if (Current.Duration > 0) position = Math.Min(position, Current.Duration);
+            positionSampledAt = sampledAt;
+            displayArtist = artists; Current = Current with { Artist = artists, Position = position }; Changed?.Invoke();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch (Exception error) { if (!disposed) Log.Write("Media artists", error); }
     }
     private void ClearPlaybackModes() { CanShuffle = CanRepeat = IsShuffleActive = false; RepeatMode = MediaPlaybackAutoRepeatMode.None; }
     private GlobalSystemMediaTransportControlsSession? ResolveSession()
@@ -320,5 +362,5 @@ public sealed class MediaService : IDisposable
         await PollAsync();
         if (!accepted) throw new InvalidOperationException("Плеер не принял переключение повтора.");
     }
-    public void Dispose() { disposed = true; Interlocked.Increment(ref pollGeneration); audioStarted = analysisRequested = false; analysisEnabled = false; StopAudio(); ClearAudio(); }
+    public void Dispose() { disposed = true; artistLookup?.Cancel(); artistLookup?.Dispose(); if (ownsArtistResolver) artistResolver.Dispose(); Interlocked.Increment(ref pollGeneration); audioStarted = analysisRequested = false; analysisEnabled = false; StopAudio(); ClearAudio(); }
 }

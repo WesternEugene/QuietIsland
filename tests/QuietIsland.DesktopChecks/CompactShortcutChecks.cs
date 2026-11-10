@@ -28,8 +28,8 @@ internal static class CompactShortcutChecks
                 var title = (TextBlock)main.FindName("CompactTitle");
                 var artist = (TextBlock)main.FindName("CompactSubtitle");
                 Require(title.Text == media.Title && artist.Text == media.Artist, "Scrolling discarded part of the media metadata.");
-                Require(Math.Abs(Viewport(title).ActualWidth - PrefixWidth(title, titlePrefix)) <= 1, "Compact title does not have a 10-character viewport.");
-                Require(Math.Abs(Viewport(artist).ActualWidth - PrefixWidth(artist, artistPrefix)) <= 1, "Compact artist does not have a 12-character viewport.");
+                Require(Math.Abs(Viewport(title).ActualWidth - 2 * RestInset(title) - PrefixWidth(title, titlePrefix)) <= 1, "Compact title does not have a 10-character viewport between the shadows.");
+                Require(Math.Abs(Viewport(artist).ActualWidth - 2 * RestInset(artist) - PrefixWidth(artist, artistPrefix)) <= 1, "Compact artist does not have a 12-character viewport between the shadows.");
                 Require(title.RenderTransform is TranslateTransform { HasAnimatedProperties: true } && artist.RenderTransform is TranslateTransform { HasAnimatedProperties: true }, "Overflowing compact metadata is not scrolling.");
                 await Task.Delay(1550);
                 Require(((TranslateTransform)title.RenderTransform).X < 0, "Compact title did not move after the initial rest.");
@@ -42,6 +42,9 @@ internal static class CompactShortcutChecks
                 Call(main, "UpdateCompact"); main.Show(); await Dispatcher.Yield(DispatcherPriority.Loaded); main.UpdateLayout();
                 Require(!((TranslateTransform)title.RenderTransform).HasAnimatedProperties && !((TranslateTransform)artist.RenderTransform).HasAnimatedProperties, "Short metadata still scrolls after a track change.");
                 Require(((TranslateTransform)title.RenderTransform).X == 0, "A new short track retained the old scrolling offset.");
+                SetMedia(context, media with { Title = new string('█', 80), Artist = new string('█', 80) });
+                Call(main, "UpdateCompact"); main.UpdateLayout();
+                VerifyFixedShadows(title, "title", main.RenderRoot); VerifyFixedShadows(artist, "artist", main.RenderRoot);
                 context.Settings.CompactMaxWidth = 360; context.Settings.CompactFontSize = 16;
                 context.Settings.ClockSeconds = context.Settings.Clock12Hour = true;
                 context.State.Data.TimerEnd = DateTimeOffset.Now.AddMinutes(5);
@@ -141,6 +144,41 @@ internal static class CompactShortcutChecks
         var probe = new TextBlock { Text = prefix, FontFamily = label.FontFamily, FontStyle = label.FontStyle, FontWeight = label.FontWeight, FontStretch = label.FontStretch, FontSize = label.FontSize };
         probe.Measure(new(double.PositiveInfinity, double.PositiveInfinity));
         return Math.Ceiling(probe.DesiredSize.Width);
+    }
+    private static double RestInset(TextBlock label) => double.IsNaN(Canvas.GetLeft(label)) ? 0 : Canvas.GetLeft(label);
+    private static void VerifyFixedShadows(TextBlock label, string name, FrameworkElement root)
+    {
+        var viewport = Viewport(label); var inset = RestInset(label);
+        Require(inset >= 8, "Resting " + name + " starts inside the shadow instead of the clear text area.");
+        var shift = (TranslateTransform)label.RenderTransform; shift.BeginAnimation(TranslateTransform.XProperty, null);
+        var distance = label.DesiredSize.Width - viewport.ActualWidth + 2 * inset;
+        var width = (int)Math.Ceiling(viewport.ActualWidth); var height = (int)Math.Ceiling(viewport.ActualHeight);
+        var foreground = ((SolidColorBrush)label.Foreground).Color;
+        var fullBrightness = Math.Max(foreground.R, Math.Max(foreground.G, foreground.B));
+        for (var frame = 0; frame < 4; frame++)
+        {
+            shift.X = -distance * frame / 3;
+            var scene = new System.Windows.Media.Imaging.RenderTargetBitmap((int)Math.Ceiling(root.ActualWidth), (int)Math.Ceiling(root.ActualHeight), 96, 96, PixelFormats.Pbgra32);
+            scene.Render(root);
+            var origin = viewport.TranslatePoint(new Point(), root);
+            var image = new System.Windows.Media.Imaging.CroppedBitmap(scene, new Int32Rect((int)Math.Floor(origin.X), (int)Math.Floor(origin.Y), width, height));
+            CaptureService.SavePng(image, Path.GetFullPath($"artifacts/verification-1.3.2/{name}-fixed-shadow-{frame}.png"));
+            var pixels = new byte[width * height * 4]; image.CopyPixels(pixels, width * 4, 0);
+            int Brightness(int x, int columns = 1)
+            {
+                var brightness = 0;
+                for (var px = Math.Clamp(x, 0, width - 1); px < Math.Min(width, x + columns); px++)
+                    for (var y = 0; y < height; y++)
+                        for (var channel = 0; channel < 3; channel++) brightness = Math.Max(brightness, pixels[(y * width + px) * 4 + channel]);
+                return brightness;
+            }
+            Require(Brightness(width / 2, 3) > fullBrightness * .85, $"The center of the scrolling {name} is dimmed (frame {frame}).");
+            if (frame > 0) Require(Brightness(1) < fullBrightness * .32, "The left shadow moves with the " + name + ".");
+            if (frame < 3) Require(Brightness(width - 2) < fullBrightness * .32, "The right shadow moves with the " + name + ".");
+            if (frame == 0) Require(Brightness((int)inset + 3, 3) > fullBrightness * .85, "The first resting characters of " + name + " are dimmed.");
+            if (frame == 3) Require(Brightness(width - (int)inset - 5, 3) > fullBrightness * .85, "The last resting characters of " + name + " are dimmed.");
+        }
+        shift.X = 0;
     }
     private static IEnumerable<DependencyObject> Descendants(DependencyObject parent)
     {

@@ -544,6 +544,8 @@ public partial class MainWindow : Window
             CompactMeta.Visibility = compactMetaWidth > 0 ? Visibility.Visible : Visibility.Collapsed;
             var titleWidth = Math.Ceiling(Measure(CompactTitle, mediaTitleVisible ? 10 : 0));
             var subtitleWidth = Math.Ceiling(Measure(CompactSubtitle, mediaTitleVisible ? 12 : 0));
+            compactTitleOverflow.EdgePadding = compactSubtitleOverflow.EdgePadding = mediaTitleVisible ? OverflowLabel.EdgeWidth : 0;
+            titleWidth += 2 * compactTitleOverflow.EdgePadding; subtitleWidth += 2 * compactSubtitleOverflow.EdgePadding;
             var details = CompactLines.Visibility == Visibility.Visible ? Math.Max(titleWidth, subtitleWidth) + 12 : 0;
             var targetWidth = Math.Clamp(34 + 28 + compactPrefixWidth + details + compactMetaWidth + 2, c.Settings.CompactMinWidth, c.Settings.CompactMaxWidth);
             var availableTextWidth = Math.Max(0, targetWidth - 34 - 28 - compactPrefixWidth - compactMetaWidth - CompactLines.Margin.Left - CompactLines.Margin.Right);

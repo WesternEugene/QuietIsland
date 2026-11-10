@@ -8,9 +8,11 @@ namespace QuietIsland.Controls;
 /// <summary>One line, endpoint rests and eased travel in both directions; no frame timer.</summary>
 internal sealed class OverflowLabel : Grid
 {
+    public const double EdgeWidth = 10;
+    public double EdgePadding { get; set; }
     private readonly TextBlock label;
     private readonly TranslateTransform shift = new();
-    private double distance = -1;
+    private double distance = -1, restInset;
     private string measuredText = "";
     public OverflowLabel(TextBlock text)
     {
@@ -26,15 +28,21 @@ internal sealed class OverflowLabel : Grid
         if (measuredText != label.Text) { measuredText = label.Text; Stop(); }
         label.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         Height = Math.Ceiling(label.DesiredSize.Height);
-        var next = Math.Max(0, label.DesiredSize.Width - ActualWidth);
+        var edgeWidth = Math.Min(EdgeWidth, ActualWidth / 4);
+        var reservedInset = Math.Min(EdgePadding, edgeWidth);
+        var overflow = label.DesiredSize.Width - ActualWidth + 2 * reservedInset;
+        var nextInset = overflow >= 1 ? edgeWidth : reservedInset;
+        var next = Math.Max(0, label.DesiredSize.Width - ActualWidth + 2 * nextInset);
         if (!IsLoaded || !IsVisible || ActualWidth <= 0) { Stop(); return; }
-        if (Math.Abs(next - distance) < .5) return;
+        if (Math.Abs(next - distance) < .5 && Math.Abs(nextInset - restInset) < .1) return;
         Stop(); distance = next;
+        restInset = nextInset; Canvas.SetLeft(label, restInset);
         if (distance < 1) return;
-        var edge = Math.Min(10, ActualWidth / 4) / ActualWidth;
+        var edge = edgeWidth / ActualWidth;
         var fade = new LinearGradientBrush
         {
-            StartPoint = new Point(0, .5), EndPoint = new Point(1, .5),
+            MappingMode = BrushMappingMode.Absolute,
+            StartPoint = new Point(0, 0), EndPoint = new Point(ActualWidth, 0),
             GradientStops = [new(Colors.Transparent, 0), new(Colors.Black, edge), new(Colors.Black, 1 - edge), new(Colors.Transparent, 1)]
         };
         fade.Freeze(); OpacityMask = fade;
@@ -48,5 +56,5 @@ internal sealed class OverflowLabel : Grid
         animation.KeyFrames.Add(new EasingDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(2.6 + 2 * travel)), ease));
         shift.BeginAnimation(TranslateTransform.XProperty, animation);
     }
-    private void Stop() { shift.BeginAnimation(TranslateTransform.XProperty, null); shift.X = 0; OpacityMask = null; distance = -1; }
+    private void Stop() { shift.BeginAnimation(TranslateTransform.XProperty, null); shift.X = 0; Canvas.SetLeft(label, 0); restInset = 0; OpacityMask = null; distance = -1; }
 }

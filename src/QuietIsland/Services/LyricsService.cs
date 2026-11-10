@@ -212,7 +212,7 @@ public sealed class LyricsService : IDisposable
     {
         public TrackKey Key => new(Title.ToUpperInvariant(), Artist.ToUpperInvariant(), Album.ToUpperInvariant(), Duration);
         public string Uri => "https://lrclib.net/api/get?track_name=" + System.Uri.EscapeDataString(Title) + "&artist_name=" + System.Uri.EscapeDataString(Artist) + (Album.Length > 0 ? "&album_name=" + System.Uri.EscapeDataString(Album) : "") + (Duration > 0 ? "&duration=" + Duration.ToString(CultureInfo.InvariantCulture) : "");
-        public static Track From(MediaSnapshot media) => new(media.Title.Trim(), media.Artist.Trim(), media.Album.Trim(), double.IsFinite(media.Duration) && media.Duration is >= 1 and <= 3600 ? (int)Math.Round(media.Duration) : 0);
+        public static Track From(MediaSnapshot media) => new(media.Title.Trim(), (media.NativeArtist ?? media.Artist).Trim(), media.Album.Trim(), double.IsFinite(media.Duration) && media.Duration is >= 1 and <= 3600 ? (int)Math.Round(media.Duration) : 0);
     }
     private sealed record Request(Track Track, CancellationTokenSource Cancellation);
 }
