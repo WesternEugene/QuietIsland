@@ -87,14 +87,14 @@ public partial class MainWindow : Window
         }
         PinButton.Content = Icons.Make("pin"); CloseButton.Content = Icons.Make("close"); DictationButton.Content = Icons.Make("mic");
         InitializeTimerNotice(); ConfigureHeader();
-        Root.MouseEnter += (_, _) => { if (!expanded && !HasAlarm && !overlayBlocked && !DragHeld) hover.Start(); };
+        Root.MouseEnter += (_, _) => { if (!expanded && !HasAlarm && !BluetoothConnectionNoticeActive && !overlayBlocked && !DragHeld) hover.Start(); };
         Root.MouseLeave += (_, _) => hover.Stop();
         Compact.MouseLeftButtonUp += async (_, e) => { e.Handled = true; if (c.Recording.IsRecording) await ToggleRecordingAsync(); else ReopenPanel(); };
         Fluid.MouseLeftButtonUp += async (_, _) => { if (!expanded) { if (c.Recording.IsRecording) await ToggleRecordingAsync(); else ReopenPanel(); } };
         Compact.MouseRightButtonUp += (_, _) => ShowTrayMenu();
         Fluid.MouseRightButtonUp += (_, _) => { if (!expanded) ShowTrayMenu(); };
         Root.MouseWheel += (_, e) => { if (expanded) return; try { c.System.Volume += e.Delta / 120f * .03f; c.Notify($"Громкость {(int)(c.System.Volume * 100)}%"); e.Handled = true; } catch (Exception error) { c.Error(error); } };
-        hover.Tick += (_, _) => { hover.Stop(); if (Root.IsMouseOver && !HasAlarm && !overlayBlocked && !DragHeld) ReopenPanel(); };
+        hover.Tick += (_, _) => { hover.Stop(); if (Root.IsMouseOver && !HasAlarm && !BluetoothConnectionNoticeActive && !overlayBlocked && !DragHeld) ReopenPanel(); };
         CloseButton.Click += (_, _) => Collapse();
         PinButton.Click += (_, _) => { pinned = !pinned; PinButton.Background = pinned ? Ui.Brush("Hover") : Brushes.Transparent; };
         DictationButton.Click += async (_, _) => await DictateAsync();
@@ -342,6 +342,7 @@ public partial class MainWindow : Window
     internal void PreviewTransition(bool open) { expanded = open; AnimateShell(open, true); }
     private void AnimateShell(bool open, bool force = false, bool preserveContent = false)
     {
+        if (PresentBluetoothConnectionShell(force)) return;
         TimeSpan Duration(double ms) => TimeSpan.FromMilliseconds(ms / c.Settings.AnimationSpeed);
         var revision = ++transition;
         var width = open ? 744d : compactWidth; var height = open ? ExpandedShellHeight : compactHeight;
@@ -372,6 +373,8 @@ public partial class MainWindow : Window
         compactMetaShift.X = Fluid.VisualWidth - compactWidth;
         compactClip.Rect = new Rect(0, 0, width, Math.Min(Compact.Height, Math.Max(0, Fluid.VisualHeight - 8)));
         compactTextClip.Rect = new Rect(0, 0, Math.Max(0, width - 28 - compactPrefixWidth - compactMetaWidth), Compact.Height);
+        var noticeWidth = Math.Min(BluetoothNotice.Width, Math.Max(0, Fluid.VisualWidth - 48));
+        bluetoothNoticeClip.Rect = new Rect((BluetoothNotice.Width - noticeWidth) / 2, 0, noticeWidth, Math.Min(BluetoothNotice.Height, Math.Max(0, Fluid.VisualHeight - 8)));
     }
     private void ReleaseView() { if (!ReferenceEquals(view, homeCache)) view?.Dispose(); view = null; }
     internal HomeView PrepareHome()
@@ -388,12 +391,13 @@ public partial class MainWindow : Window
     }
     public void ApplySettings()
     {
+        c.BluetoothBattery.SetAirPodsEnabled(c.Settings.ShowBluetoothBattery && c.Settings.AirPodsBatteryEnabled);
         c.Settings.NormalizeAppearance(); hover.Interval = TimeSpan.FromMilliseconds(Math.Max(1, c.Settings.HoverOpenDelayMs)); ApplyTheme(); Scale.ScaleX = Scale.ScaleY = c.Settings.Scale; RegisterHotkeys(); ConfigureHeader();
         motion.Speed = c.Settings.AnimationSpeed; Fluid.ApplyAppearance(c.Settings);
         Compact.Height = c.Settings.CompactHeight - 8; ClockText.FontSize = c.Settings.CompactFontSize; CompactTitle.FontSize = c.Settings.CompactFontSize - 1;
         compactMeasureKey = ""; UpdateCompact();
         ApplyVisualOpacity();
-        if (!expanded) motion.To(compactWidth, compactHeight, (!snapshot || NativeMotionProbe) && IsLoaded, keepCompletion: true);
+        if (!expanded && !bluetoothNoticeShowing) motion.To(compactWidth, compactHeight, (!snapshot || NativeMotionProbe) && IsLoaded, keepCompletion: true);
         if (!snapshot || mirrorOwner != null) PrepareHome();
         if (!snapshot || mirrorOwner != null || NativeMotionProbe) { Native.ConfigureOverlay(this, expanded, !expanded && c.Settings.ClickThrough && !HasAlarm, c.Settings.HideInCapture); if (snapshot && mirrorOwner == null) ResizeAndPosition(); else UpdateRuntimeVisibility(DateTime.Now); }
         if (!snapshot) ReconcileMirrors();
@@ -459,6 +463,7 @@ public partial class MainWindow : Window
     }
     private void DismissAfterLeave(bool inside, double elapsedMs)
     {
+        if (bluetoothNoticeShowing) return;
         if (Windows.Dialogs.IsOpen) lastInside = DateTime.Now;
         if (QuietIsland.Core.OverlayBehavior.ShouldDismiss(expanded, pinned, inside, popupGuard.IsOpen || DragHeld || Windows.Dialogs.IsOpen, keyboardHold, elapsedMs, c.Settings.HoverCloseDelayMs)) Collapse();
     }
@@ -499,6 +504,7 @@ public partial class MainWindow : Window
             compactWeatherCode = forecast.Code; CompactWeatherGlyph.Content = Icons.Weather(forecast.Code, 18);
         }
         InputBadge.Visibility = c.Settings.ShowInputStatus ? Visibility.Visible : Visibility.Collapsed;
+        UpdateBluetoothBattery();
         var nextInput = c.Activity.Layout + (c.Activity.CapsLock ? " CAPS" : "");
         if (nextInput != inputState)
         {
@@ -524,7 +530,7 @@ public partial class MainWindow : Window
             SetCompactSize(Math.Max(alarmWidth, c.Settings.CompactMinWidth), Math.Max(72, c.Settings.CompactHeight + 16));
             return;
         }
-        var measureKey = icon + "|" + ClockText.Text + "|" + CompactTimer.Visibility + CompactTimerText.Text + coverVisible + mediaTitleVisible + CompactTitle.Text + "\n" + CompactSubtitle.Text + "\n" + CompactWeather.Text + inputState;
+        var measureKey = icon + "|" + ClockText.Text + "|" + CompactTimer.Visibility + CompactTimerText.Text + coverVisible + mediaTitleVisible + CompactTitle.Text + "\n" + CompactSubtitle.Text + "\n" + CompactWeather.Text + inputState + "|" + bluetoothPresentationRevision;
         if (measureKey != compactMeasureKey)
         {
             compactMeasureKey = measureKey;
@@ -540,6 +546,8 @@ public partial class MainWindow : Window
             }
             compactPrefixWidth = Math.Ceiling((icon.Length > 0 ? 22 : 0) + Measure(ClockText)) + (timerEnd != null ? Math.Ceiling(40 + Measure(CompactTimerText)) : 0) + (coverVisible ? 40 : 0);
             compactMetaWidth = (c.Settings.ShowInputStatus ? Math.Ceiling(Measure(InputLayout) + (c.Activity.CapsLock ? Measure(InputCaps) + 5 : 0) + 10) : 0) + (CompactWeather.Text.Length > 0 ? Math.Ceiling(Measure(CompactWeather) + 33) : 0);
+            CompactBluetoothBattery.SetBudget(c.Settings.CompactMaxWidth - 34 - 28 - compactPrefixWidth - compactMetaWidth - 24);
+            if (CompactBluetoothBattery.Visibility == Visibility.Visible) compactMetaWidth += CompactBluetoothBattery.Width + 10;
             if (compactMetaWidth > 0) compactMetaWidth += 12;
             CompactMeta.Visibility = compactMetaWidth > 0 ? Visibility.Visible : Visibility.Collapsed;
             var titleWidth = Math.Ceiling(Measure(CompactTitle, mediaTitleVisible ? 10 : 0));
@@ -554,13 +562,15 @@ public partial class MainWindow : Window
             Compact.ToolTip = ClockText.Text + (timerEnd != null ? " · Таймер " + CompactTimerText.Text : "") + "\n" + CompactTitle.Text + (CompactSubtitle.Text.Length > 0 ? "\n" + CompactSubtitle.Text : "");
             SetCompactSize(targetWidth, c.Settings.CompactHeight);
         }
+        PresentBluetoothConnectionShell();
     }
     private void SetCompactSize(double width, double height)
     {
         var changed = Math.Abs(width - compactWidth) > 1 || Math.Abs(height - compactHeight) > .1;
         compactWidth = width; compactHeight = height; Compact.Width = width - 34; Compact.Height = height - 8;
         UpdatePanelClip();
-        if (changed && !expanded) motion.To(width, height, (!snapshot || mirrorOwner != null || NativeMotionProbe) && IsLoaded, keepCompletion: true);
+        if (!PresentBluetoothConnectionShell() && changed && !expanded) motion.To(width, height, (!snapshot || mirrorOwner != null || NativeMotionProbe) && IsLoaded, keepCompletion: true, easing: bluetoothSizeChanged);
+        bluetoothSizeChanged = false;
     }
     public async Task ScreenshotAsync(string mode)
     {

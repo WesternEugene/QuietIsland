@@ -25,6 +25,12 @@ public class AppSettings
     public bool ShowSongTitle { get; set; } = true;
     public bool ShowInputStatus { get; set; } = true;
     public bool ShowWeather { get; set; } = true;
+    public bool ShowBluetoothBattery { get; set; } = true;
+    public bool AirPodsBatteryEnabled { get; set; } = true;
+    public bool BluetoothBatteryCompact { get; set; } = true;
+    public bool BluetoothBatteryExpanded { get; set; } = true;
+    public bool BluetoothBatteryShowNames { get; set; } = true;
+    public bool BluetoothConnectionNotifications { get; set; } = true;
     public bool ClockSeconds { get; set; }
     public bool Clock12Hour { get; set; }
     public List<string> HeaderTabs { get; set; } = ["home", "clipboard", "shelf", "tools", "ai", "notes", "weather", "control"];

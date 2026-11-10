@@ -402,6 +402,37 @@ public static class Icons
             case "bluetooth":
                 g.Path("M12,2.8 L18.5,8.1 L5.8,17.3 M12,2.8 V21.2 L18.5,15.9 L5.8,6.7", width: 1.9);
                 break;
+            case "mouse":
+                g.Rect(5.8, 2.5, 12.4, 19, 6, Tone.Soft); g.Path("M12,3 V8.5", stroke: Tone.Light, width: 1.9);
+                break;
+            case "headphones":
+                g.Path("M3.5,14 V11 A8.5,8.5 0 0 1 20.5,11 V14", width: 2);
+                g.Rect(2.5, 11, 5, 9, 2, Tone.Soft); g.Rect(16.5, 11, 5, 9, 2, Tone.Soft);
+                break;
+            case "speaker":
+                g.Rect(5, 2, 14, 20, 2.8, Tone.Soft); g.Ellipse(10.7, 5.1, 2.6, 2.6, Tone.Main, null); g.Ellipse(8, 11, 8, 8, null);
+                break;
+            case "keyboard":
+                g.Rect(1.5, 5, 21, 14, 2.5, Tone.Soft);
+                g.Path("M5,9 H6 M9,9 H10 M13,9 H14 M17,9 H18 M5,12 H6 M9,12 H10 M13,12 H14 M17,12 H18 M7,15.5 H17", stroke: Tone.Light, width: 1.6);
+                break;
+            case "gamepad":
+                g.Path("M7,6 H17 Q20,6 21,10 L22,17 Q22,21 18,19 L15,16 H9 L6,19 Q2,21 2,17 L3,10 Q4,6 7,6 Z", Tone.Soft);
+                g.Path("M7,9 V14 M4.5,11.5 H9.5", width: 1.6); g.Ellipse(16, 9, 2.3, 2.3, Tone.Main, null); g.Ellipse(18.5, 12.5, 2.3, 2.3, Tone.Main, null);
+                break;
+            case "phone":
+                g.Rect(6, 1.5, 12, 21, 2.5, Tone.Soft); g.Path("M10,4 H14 M11,19.5 H13", width: 1.5);
+                break;
+            case "watch":
+                g.Path("M8,6 L9,1 H15 L16,6 M8,18 L9,23 H15 L16,18", Tone.Soft);
+                g.Rect(5, 5, 14, 14, 4, Tone.Soft); g.Path("M12,8 V12 L15,14", stroke: Tone.Light);
+                break;
+            case "pen":
+                g.Path("M4,20 L5.2,14.5 L17,2.7 Q18,1.7 19.5,3.2 L20.8,4.5 Q22.3,6 21.3,7 L9.5,18.8 Z", Tone.Soft); g.Path("M14.8,5 L19,9.2 M4,20 L8.5,18.5", stroke: Tone.Light);
+                break;
+            case "computer":
+                g.Rect(2, 3, 20, 14, 2, Tone.Soft); g.Path("M12,17 V21 M7,21 H17", width: 1.8);
+                break;
             case "power":
                 g.Path("M7.3,5.7 A8,8 0 1 0 16.7,5.7", width: 2.1);
                 g.Path("M12,2.7 V11", stroke: Tone.Light, width: 2.4);

@@ -372,7 +372,7 @@ internal static class CaptureChecks
         });
         await Check("release_version_is_visible_in_updates", () =>
         {
-            Require(context.Updates.CurrentVersionText == "1.3.2", "The updates UI does not display 1.3.2.");
+            Require(context.Updates.CurrentVersionText == "1.4.0", "The updates UI does not display 1.4.0.");
             return Task.CompletedTask;
         });
         await Check("capture_toolbar_fits_and_renders_with_application_styles", () =>

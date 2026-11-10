@@ -38,7 +38,7 @@ public partial class MainWindow
     private void RefreshRuntime(bool hidden)
     {
         runtimeHidden = hidden;
-        var active = expanded || Root.IsMouseOver || DragHeld;
+        var active = expanded || Root.IsMouseOver || DragHeld || BluetoothConnectionNoticeActive;
         var slow = c.Settings.AutoReduceResources && economyMode && !active;
         timer.Interval = TimeSpan.FromMilliseconds(hidden || slow ? 1000 : 250);
         interaction.Interval = TimeSpan.FromMilliseconds(hidden ? 1000 : slow ? 400 : 80);
@@ -56,7 +56,7 @@ public partial class MainWindow
         var excluded = c.Settings.ExcludedApps.Split([',', ';'], StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).Any(x => Native.ForegroundProcess().Equals(x.Replace(".exe", "", StringComparison.OrdinalIgnoreCase), StringComparison.OrdinalIgnoreCase));
         overlayBlocked = !HasAlarm && (fullscreen || excluded);
         if (overlayBlocked && expanded && !DragHeld) Collapse();
-        var autohide = !expanded && !HasAlarm && c.Settings.AutoHide && !Root.IsMouseOver && !DragHeld;
+        var autohide = !expanded && !HasAlarm && !BluetoothConnectionNoticeActive && c.Settings.AutoHide && !Root.IsMouseOver && !DragHeld;
         if (!overlayBlocked && Native.GetCursorPos(out var pointer) && pointer.Y >= Screen.Bounds.Top && pointer.Y <= Screen.Bounds.Top + 4 && Math.Abs(pointer.X - (Screen.Bounds.Left + Screen.Bounds.Width / 2)) < 150)
         { autohide = false; lastInside = now; }
         var hidden = hiddenByUser || HiddenForCapture || overlayBlocked || autohide && (now - lastInside).TotalSeconds > 1;

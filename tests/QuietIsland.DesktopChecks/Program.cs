@@ -35,6 +35,8 @@ internal static class Program
 
     private static async Task<int> RunAsync()
     {
+        await BluetoothBatteryChecks.RunAsync(CheckAsync);
+        if (Environment.GetEnvironmentVariable("QUIET_ISLAND_CHECK_FILTER")?.StartsWith("bluetooth_battery", StringComparison.OrdinalIgnoreCase) == true) return Report();
         await ArtistMetadataChecks.RunAsync(CheckAsync);
         await CompactShortcutChecks.RunAsync(CheckAsync);
         await StartupChecks.RunAsync(CheckAsync);
@@ -209,6 +211,11 @@ internal static class Program
             Require(labels.Any(x => x.StartsWith("Ветер ") && x.Contains("м/с") && !x.Contains("км/ч")), "Wind label does not display m/s.");
             return Task.CompletedTask;
         });
+        return Report();
+    }
+
+    private static int Report()
+    {
         Console.WriteLine(JsonSerializer.Serialize(Results, new JsonSerializerOptions { WriteIndented = true }));
         return Results.Any(x => (bool)x.GetType().GetProperty("passed")!.GetValue(x)! == false) ? 1 : 0;
     }

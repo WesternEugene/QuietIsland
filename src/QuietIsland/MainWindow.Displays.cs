@@ -27,6 +27,13 @@ public partial class MainWindow
             if (view is HomeView) view.Refresh();
         });
         c.Media.Changed += OnMedia; subscriptions.Add(() => c.Media.Changed -= OnMedia);
+        void OnBluetoothBattery() => Dispatcher.InvokeAsync(() =>
+        {
+            if (IsClosing) return;
+            UpdateCompact();
+            if (!snapshot || mirrorOwner != null) UpdateRuntimeVisibility(DateTime.Now);
+        });
+        c.BluetoothBattery.Changed += OnBluetoothBattery; subscriptions.Add(() => c.BluetoothBattery.Changed -= OnBluetoothBattery);
         void OnAgents() => Dispatcher.InvokeAsync(() => { if (IsClosing) return; if (c.Agents.Broker.Pending.Count > 0) ShowPanel("activity", false); if (view is ActivityView) view.Refresh(); });
         c.Agents.Broker.Changed += OnAgents; subscriptions.Add(() => c.Agents.Broker.Changed -= OnAgents);
         void OnSpeech(string text) { if (mirrorOwner == null) Dispatcher.InvokeAsync(() => c.Notify(text)); }

@@ -1,12 +1,12 @@
 #define AppName "Quiet Island"
-#define AppVersion "1.3.2"
+#define AppVersion "1.4.0"
 #define AppExeName "QuietIsland.exe"
 
 [Setup]
 AppId={{6F98FA41-1225-4C52-A2DB-85F78C762940}
 AppName={#AppName}
 AppVersion={#AppVersion}
-VersionInfoVersion=1.3.2.0
+VersionInfoVersion=1.4.0.0
 AppPublisher=Quiet Island
 
 DefaultDirName={localappdata}\Programs\Quiet Island

@@ -13,6 +13,7 @@ public sealed class IslandContext : IDisposable
     public ClipboardService Clipboard { get; }
     public SystemService System { get; }
     public DeviceControlService Devices { get; } = new();
+    public BluetoothBatteryService BluetoothBattery { get; } = new();
     public HappService Happ { get; } = new();
     public ActivityService Activity { get; } = new();
     public NotificationService Notifications { get; } = new();
@@ -40,6 +41,8 @@ public sealed class IslandContext : IDisposable
     public async Task StartAsync()
     {
         Updates.Start();
+        BluetoothBattery.SetAirPodsEnabled(Settings.ShowBluetoothBattery && Settings.AirPodsBatteryEnabled);
+        BluetoothBattery.Start();
         Activity.StartInputObserver();
         Applications = await Task.Run(SystemService.DiscoverApplications);
         await Media.StartAsync();
@@ -68,5 +71,5 @@ public sealed class IslandContext : IDisposable
         State.Data.TimerDuration = State.Data.TimerRemaining = duration.TotalSeconds;
         State.Data.TimerEnd = DateTimeOffset.Now.Add(duration); State.Data.TimerPaused = false; State.Touch(); Notify("Таймер запущен · " + Controls.Ui.Time(duration.TotalSeconds));
     }
-    public void Dispose() { Focus.Dispose(); Updates.Dispose(); State.Save(); Everything.Dispose(); Media.Dispose(); Lyrics.Dispose(); Devices.Dispose(); Happ.Dispose(); Weather.Dispose(); Activity.Dispose(); Agents.Dispose(); Ai.Dispose(); Recording.Dispose(); Speech.Dispose(); Obs.Dispose(); }
+    public void Dispose() { Focus.Dispose(); Updates.Dispose(); State.Save(); Everything.Dispose(); Media.Dispose(); Lyrics.Dispose(); BluetoothBattery.Dispose(); Devices.Dispose(); Happ.Dispose(); Weather.Dispose(); Activity.Dispose(); Agents.Dispose(); Ai.Dispose(); Recording.Dispose(); Speech.Dispose(); Obs.Dispose(); }
 }
