@@ -34,6 +34,7 @@ internal static class Native
     [DllImport("user32.dll")] public static extern short GetKeyState(int key);
     [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int key);
     [DllImport("dwmapi.dll")] private static extern int DwmGetWindowAttribute(IntPtr window, int attribute, out RECT value, int size);
+    [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref int value, int size);
     [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT point);
     [DllImport("user32.dll")] private static extern uint SendInput(uint n, INPUT[] inputs, int size);
     [DllImport("user32.dll")] public static extern bool LockWorkStation();
@@ -43,6 +44,14 @@ internal static class Native
     [StructLayout(LayoutKind.Explicit)] private struct INPUTUNION { [FieldOffset(0)] public KEYBDINPUT keyboard; [FieldOffset(0)] public MOUSEINPUT mouse; }
     [StructLayout(LayoutKind.Sequential)] private struct KEYBDINPUT { public ushort vk, scan; public uint flags, time; public IntPtr extra; }
     [StructLayout(LayoutKind.Sequential)] private struct MOUSEINPUT { public int x, y; public uint data, flags, time; public IntPtr extra; }
+
+    public static void MatchTitleBarToBackground(Window window)
+    {
+        var handle = new WindowInteropHelper(window).Handle;
+        if (handle == IntPtr.Zero || window.Background is not SolidColorBrush background) return;
+        var dark = background.Color.R > 128 ? 0 : 1;
+        DwmSetWindowAttribute(handle, 20, ref dark, sizeof(int));
+    }
 
     public static void ConfigureOverlay(Window window, bool acceptsInput, bool clickThrough, bool hideCapture)
     {

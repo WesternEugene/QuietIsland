@@ -125,7 +125,7 @@ public partial class MainWindow : Window
         Closing += (_, e) =>
         {
             if (mirrorOwner == null && (c.Recording.IsStarting || c.Recording.IsRecording || c.Recording.IsFinalizing)) { e.Cancel = true; c.Notify("Сначала остановите запись: " + GlobalShortcuts.Label(c.Settings, "recording")); return; }
-            IsClosing = true; printScreen?.Dispose();
+            IsClosing = true; printScreen?.Dispose(); tutorialWindow?.Close();
             UnsubscribeContext(); CloseMirrors();
             c.Updates.Changed -= UpdatesChanged;
             c.State.Changed -= AppStateChanged;
@@ -167,6 +167,7 @@ public partial class MainWindow : Window
         var menu = new System.Windows.Forms.ContextMenuStrip();
         menu.Items.Add("Открыть поиск", null, (_, _) => Dispatcher.Invoke(() => { hiddenByUser = false; Show(); ShowPanel("search", true); }));
         menu.Items.Add("Настройки…", null, (_, _) => Dispatcher.Invoke(ShowSettings));
+        menu.Items.Add("Короткий тур…", null, (_, _) => Dispatcher.Invoke(ShowTutorial));
         menu.Items.Add("Проверить обновления…", null, (_, _) => Dispatcher.InvokeAsync(async () => await CheckForUpdatesAsync()));
         menu.Items.Add("Запись экрана / остановить", null, (_, _) => Dispatcher.InvokeAsync(async () => await ToggleRecordingAsync()));
         menu.Items.Add("Показать / скрыть", null, (_, _) => Dispatcher.Invoke(() => SetIslandHidden(!hiddenByUser)));
@@ -201,7 +202,7 @@ public partial class MainWindow : Window
         switch (id)
         {
             case 1: hiddenByUser = false; Show(); ShowPanel("search", true); break;
-            case 2: ShowPanel("clipboard", false); break;
+            case 2: ShowPanel("clipboard", true); break;
             case 3: ShowPanel("notes", true); break;
             case 4: _ = ScreenshotAsync("shot"); break;
             case 5: _ = ToggleRecordingAsync(); break;
@@ -417,6 +418,7 @@ public partial class MainWindow : Window
         System.Windows.Application.Current.Resources["SettingsSurface"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(light ? "#F6F7F8" : "#101010"));
         System.Windows.Application.Current.Resources["SettingsSidebar"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(light ? "#E9ECEF" : "#0A0A0A"));
         settingsWindow?.ApplyTheme();
+        if (tutorialWindow != null) Native.MatchTitleBarToBackground(tutorialWindow);
         Fluid.InvalidateVisual();
     }
     private System.Windows.Forms.Screen Screen => ResolveScreen();

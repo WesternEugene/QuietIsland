@@ -120,6 +120,7 @@ public class AppSettings
 public class AppState
 {
     public AppSettings Settings { get; set; } = new();
+    public bool TutorialDismissed { get; set; }
     [System.Text.Json.Serialization.JsonIgnore]
     public List<ClipEntry> Clipboard { get; set; } = [];
     // Ordinary history is session-only; pins have an explicit durable representation.

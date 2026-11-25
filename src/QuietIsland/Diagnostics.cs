@@ -129,9 +129,15 @@ public static class Diagnostics
         }
         File.WriteAllText(path, JsonSerializer.Serialize(results, new JsonSerializerOptions { WriteIndented = true }));
     }
-    internal static RenderTargetBitmap Render(FrameworkElement element, int width, int height)
+    internal static RenderTargetBitmap Render(FrameworkElement element, int width, int height, int pixelScale = 1)
     {
-        element.Measure(new Size(width, height)); element.Arrange(new Rect(0, 0, width, height)); element.UpdateLayout(); var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32); bitmap.Render(element); bitmap.Freeze(); return bitmap;
+        element.Measure(new Size(width, height));
+        element.Arrange(new Rect(0, 0, width, height));
+        element.UpdateLayout();
+        var bitmap = new RenderTargetBitmap(width * pixelScale, height * pixelScale, 96 * pixelScale, 96 * pixelScale, PixelFormats.Pbgra32);
+        bitmap.Render(element);
+        bitmap.Freeze();
+        return bitmap;
     }
     private sealed class PreviewLyricsHandler : System.Net.Http.HttpMessageHandler
     {

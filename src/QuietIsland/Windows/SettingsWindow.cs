@@ -1,7 +1,5 @@
-using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Interop;
 using System.Windows.Media;
 using QuietIsland.Controls;
 using QuietIsland.Services;
@@ -45,11 +43,5 @@ public sealed class SettingsWindow : Window
         SourceInitialized += (_, _) => ApplyTheme();
         Closed += (_, _) => { context.Toast -= Toast; settings.Dispose(); scrolling.Dispose(); };
     }
-    public void ApplyTheme()
-    {
-        var handle = new WindowInteropHelper(this).Handle; if (handle == IntPtr.Zero) return;
-        var light = Ui.Brush("SettingsSurface") is SolidColorBrush b && b.Color.R > 128; var dark = light ? 0 : 1;
-        DwmSetWindowAttribute(handle, 20, ref dark, sizeof(int));
-    }
-    [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+    public void ApplyTheme() => Native.MatchTitleBarToBackground(this);
 }

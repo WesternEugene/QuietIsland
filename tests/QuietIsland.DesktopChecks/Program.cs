@@ -40,6 +40,7 @@ internal static class Program
         await ArtistMetadataChecks.RunAsync(CheckAsync);
         await CompactShortcutChecks.RunAsync(CheckAsync);
         await StartupChecks.RunAsync(CheckAsync);
+        await TutorialChecks.RunAsync(CheckAsync);
         await PolishChecks.RunAsync(CheckAsync);
         await MediaFocusChecks.RunAsync(CheckAsync);
         await CaptureVisibilityChecks.RunAsync(CheckAsync);

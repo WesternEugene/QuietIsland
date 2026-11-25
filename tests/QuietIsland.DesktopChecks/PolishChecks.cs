@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using QuietIsland.Models;
 using QuietIsland.Services;
 using QuietIsland.Views;
@@ -127,17 +128,37 @@ internal static class PolishChecks
             finally { main.Close(); }
             return Task.CompletedTask;
         });
+        await check("polish_cover_prefers_bright_detail", () =>
+        {
+            const int size = 240;
+            var pixels = new byte[size * size * 4];
+            Array.Fill(pixels, (byte)255);
+            new byte[]
+            {
+                255, 255, 0, 0,   // Transparent cyan
+                200, 0, 0, 255,   // Darker blue
+                155, 255, 65, 255 // Bright green
+            }.CopyTo(pixels, 0);
+            var image = BitmapSource.Create(size, size, 96, 96, PixelFormats.Bgra32, null, pixels, size * 4);
+            var color = GetAlbumAccent(image);
+            Require(color == Color.FromRgb(65, 255, 155), $"Expected the bright green detail, got {color}.");
+            return Task.CompletedTask;
+        });
         await check("polish_neutral_cover_keeps_neutral_palette", () =>
         {
-            var palette = typeof(QuietIsland.Controls.Ui).Assembly.GetType("QuietIsland.Controls.AlbumPalette")!;
             foreach (var tone in new byte[] { 0, 128, 255 })
             {
-                var image = System.Windows.Media.Imaging.BitmapSource.Create(1, 1, 96, 96, PixelFormats.Bgra32, null, new byte[] { tone, tone, tone, 255 }, 4);
-                var color = (Color)palette.GetMethod("Accent", BindingFlags.Static | BindingFlags.Public)!.Invoke(null, [image])!;
+                var image = BitmapSource.Create(1, 1, 96, 96, PixelFormats.Bgra32, null, new byte[] { tone, tone, tone, 255 }, 4);
+                var color = GetAlbumAccent(image);
                 Require(Math.Abs(color.R - color.G) < 5 && Math.Abs(color.R - color.B) < 5, "A neutral cover uses the unrelated coral accent.");
             }
             return Task.CompletedTask;
         });
+    }
+    private static Color GetAlbumAccent(BitmapSource image)
+    {
+        var palette = typeof(QuietIsland.Controls.Ui).Assembly.GetType("QuietIsland.Controls.AlbumPalette")!;
+        return (Color)palette.GetMethod("Accent", BindingFlags.Static | BindingFlags.Public)!.Invoke(null, [image])!;
     }
     private static void Require(bool value, string message) { if (!value) throw new InvalidOperationException(message); }
     private static IEnumerable<DependencyObject> Descendants(DependencyObject parent)

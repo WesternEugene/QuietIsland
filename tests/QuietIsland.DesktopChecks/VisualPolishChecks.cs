@@ -71,6 +71,43 @@ internal static class VisualPolishChecks
             Require(double.IsFinite(next.Data.Settings.HoverOpenDelayMs), "Invalid hover delay can reach DispatcherTimer.");
             return Task.CompletedTask;
         });
+        await check("installer_appearance_applies_once_and_preserves_the_profile", () =>
+        {
+            var directory = Path.Combine(Path.GetTempPath(), "island-setup-appearance-" + Guid.NewGuid().ToString("N"));
+            var before = new DesktopState(directory);
+            before.Data.Notes = [new Note { Title = "Сохранённая заметка" }];
+            before.Data.Settings.CompactCornerRadius = 22;
+            before.Save();
+
+            var preset = Path.Combine(directory, "setup-appearance.json");
+            File.WriteAllText(preset, """{"Theme":"Light","ScalePercent":125,"AccentColor":"#80CDF5"}""");
+            var installed = new DesktopState(directory);
+            Require(installed.Data.Settings.Theme == "Light" && installed.Data.Settings.Scale == 1.25 &&
+                installed.Data.Settings.AccentColor == "#80CDF5", "The choices made in Setup did not reach the desktop app.");
+            Require(installed.Data.Notes.Single().Title == "Сохранённая заметка" && installed.Data.Settings.CompactCornerRadius == 22,
+                "The installer appearance overwrote unrelated data or settings.");
+            Require(!File.Exists(preset) && new DesktopState(directory).Data.Settings.Theme == "Light", "The preset was not consumed and saved.");
+
+            installed.Data.Settings.Theme = "System";
+            installed.Save();
+            Require(new DesktopState(directory).Data.Settings.Theme == "System", "Setup reapplied a consumed preset over a later change.");
+            return Task.CompletedTask;
+        });
+        await check("installer_appearance_rejects_incomplete_or_invalid_presets", () =>
+        {
+            var directory = Path.Combine(Path.GetTempPath(), "island-setup-appearance-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            var preset = Path.Combine(directory, "setup-appearance.json");
+            foreach (var invalid in new[] { "{", """{"Theme":"Light","ScalePercent":1,"AccentColor":"#FFFFFF"}""" })
+            {
+                File.WriteAllText(preset, invalid);
+                var state = new DesktopState(directory);
+                Require(state.Data.Settings.Theme == "Dark" && state.Data.Settings.Scale == 1 && state.Data.Settings.AccentColor == "#FF8B81",
+                    "An invalid setup preset changed the default appearance.");
+                Require(!File.Exists(preset), "An invalid setup preset remained queued.");
+            }
+            return Task.CompletedTask;
+        });
     }
     private static void Layout(HomeView view) { view.Measure(new(680, view.PreferredBodyHeight)); view.Arrange(new(0, 0, 680, view.PreferredBodyHeight)); view.UpdateLayout(); }
     internal static ResourceDictionary Styles()

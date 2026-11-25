@@ -33,6 +33,23 @@ foreach ($islandGeneratedPath in @($islandArtifactsRoot, $islandPublishDirectory
 if (Test-Path -LiteralPath $islandPublishDirectory) { Remove-Item -LiteralPath $islandPublishDirectory -Recurse -Force }
 & $islandDotnet publish 'src\QuietIsland\QuietIsland.csproj' -c Release -r win-x64 --self-contained $SelfContained.ToString().ToLowerInvariant() -o $islandPublishDirectory --nologo -v minimal
 if ($LASTEXITCODE -ne 0) { throw 'Сборка не прошла.' }
+$previewDirectory = Join-Path $islandArtifactsRoot 'installer-preview'
+$previewArguments = @('--render-installer-preview', ('"' + $previewDirectory + '"'))
+if ($SelfContained) {
+    $previewProgram = Join-Path $islandPublishDirectory 'QuietIsland.exe'
+}
+else {
+    $previewProgram = $islandDotnet
+    $previewArguments = @('exec', ('"' + (Join-Path $islandPublishDirectory 'QuietIsland.dll') + '"')) + $previewArguments
+}
+$previewProcess = Start-Process -FilePath $previewProgram -ArgumentList $previewArguments -WindowStyle Hidden -PassThru
+if (-not $previewProcess.WaitForExit(45000)) {
+    $previewProcess.Kill()
+    throw 'Не удалось дождаться отрисовки превью установщика.'
+}
+if ($previewProcess.ExitCode -ne 0 -or -not (Test-Path -LiteralPath (Join-Path $previewDirectory 'QuietIslandPreview-FF8B81.png') -PathType Leaf)) {
+    throw 'Не удалось отрисовать превью установщика.'
+}
 Copy-Item -LiteralPath 'README.md','CHANGELOG.md','THIRD_PARTY_NOTICES.md' -Destination 'artifacts\QuietIsland'
 Copy-Item -LiteralPath 'integrations' -Destination 'artifacts\QuietIsland' -Recurse -Force
 Copy-Item -LiteralPath 'docs' -Destination 'artifacts\QuietIsland' -Recurse -Force

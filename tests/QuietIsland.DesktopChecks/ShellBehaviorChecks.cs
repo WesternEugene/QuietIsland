@@ -101,6 +101,22 @@ internal static class ShellBehaviorChecks
             finally { main.Close(); UnregisterHotKey(blocker.Handle, 900); }
             return Task.CompletedTask;
         });
+        await check("clipboard_shortcut_keeps_panel_open_away_from_pointer", () =>
+        {
+            var main = new MainWindow(context, true);
+            try
+            {
+                Call(main, "InvokeShortcut", 2);
+                var panel = (FrameworkElement)main.FindName("Panel");
+                Require(Field<string>(main, "selected") == "clipboard" && panel.IsHitTestVisible, "The clipboard shortcut did not open the clipboard panel.");
+                Call(main, "PointerLeaveForChecks", context.Settings.HoverCloseDelayMs + 1);
+                Require(panel.IsHitTestVisible, "The hover timeout dismissed the clipboard opened by the shortcut.");
+                Call(main, "HandleOutsidePress");
+                Require(!panel.IsHitTestVisible, "An outside press did not close the clipboard panel.");
+            }
+            finally { main.Close(); }
+            return Task.CompletedTask;
+        });
         await check("screenshot_repeated_clipboard_notifications_create_one_history_entry", async () =>
         {
             var image = BitmapSource.Create(2, 2, 96, 96, PixelFormats.Bgra32, null,

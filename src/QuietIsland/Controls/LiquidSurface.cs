@@ -76,6 +76,11 @@ public sealed class LiquidSurface : FrameworkElement
         nextFrame = nextFrame == TimeSpan.Zero || frame.RenderingTime - nextFrame > interval
             ? frame.RenderingTime + interval : nextFrame + interval;
         var audio = media?.ReadAudio() ?? new AudioFrame(new float[32], 0);
+        AdvanceAudioFrame(audio, elapsed);
+    }
+
+    internal void AdvanceAudioFrame(AudioFrame audio, double elapsed)
+    {
         // SpectrumEnvelope bounds an integration step to 100 ms; retain the full elapsed time
         // across economy frames and delayed dispatcher work instead of slowing attack/release.
         for (var remaining = elapsed; remaining > 0; remaining -= Math.Min(remaining, .1))

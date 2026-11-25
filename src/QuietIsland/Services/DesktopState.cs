@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Windows.Threading;
 using QuietIsland.Core;
 using QuietIsland.Models;
@@ -39,9 +40,40 @@ public sealed class DesktopState
             if (Data.Settings.TopOffset == 8) Data.Settings.TopOffset = 0;
             Data.Settings.AppearanceRevision = 2;
         }
+        ApplyInstallerAppearance();
         saveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
         saveTimer.Tick += (_, _) => { saveTimer.Stop(); Save(); };
     }
+
+    private sealed record InstallerAppearance(string Theme, int ScalePercent, string AccentColor);
+
+    private void ApplyInstallerAppearance()
+    {
+        var pending = Path.Combine(DirectoryPath, "setup-appearance.json");
+        var applying = pending + ".applying";
+        try
+        {
+            // Claim the preset so Setup can safely queue a newer one while we save this one.
+            if (File.Exists(pending)) File.Move(pending, applying, overwrite: true);
+            if (!File.Exists(applying)) return;
+
+            InstallerAppearance? preset = null;
+            try { preset = JsonSerializer.Deserialize<InstallerAppearance>(File.ReadAllText(applying)); }
+            catch (JsonException) { /* An incomplete preset has no settings to apply. */ }
+
+            if (preset is { Theme: "Dark" or "Light" or "System", ScalePercent: >= 80 and <= 200, AccentColor.Length: 7 }
+                && preset.AccentColor[0] == '#' && preset.AccentColor[1..].All(Uri.IsHexDigit))
+            {
+                Data.Settings.Theme = preset.Theme;
+                Data.Settings.Scale = preset.ScalePercent / 100d;
+                Data.Settings.AccentColor = preset.AccentColor.ToUpperInvariant();
+                store.Save(Data);
+            }
+            File.Delete(applying);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Log.Write("Installer appearance", e); }
+    }
+
     private void ResetClipboardSession()
     {
         Data.Clipboard.RemoveAll(x => !x.Pinned);

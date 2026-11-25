@@ -1,0 +1,63 @@
+<Window x:Class="QuietIsland.Windows.TutorialWindow" x:ClassModifier="internal"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Quiet Island · Короткий тур" Icon="/QuietIsland;component/Assets/island.ico"
+        Width="520" Height="400" ResizeMode="CanMinimize" WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource SettingsSurface}" Foreground="{DynamicResource Text}"
+        FontFamily="Segoe UI Variable, Segoe UI" UseLayoutRounding="True">
+  <Grid Margin="26,21,26,18">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition/>
+      <RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+
+    <DockPanel LastChildFill="False">
+      <ContentControl x:Name="StepIcon" DockPanel.Dock="Left"/>
+      <TextBlock x:Name="StepProgress" DockPanel.Dock="Right" VerticalAlignment="Center"
+                 FontSize="12" Foreground="{DynamicResource Muted}"/>
+    </DockPanel>
+
+    <ScrollViewer x:Name="StepBody" Grid.Row="1" Margin="0,14,0,10">
+      <StackPanel>
+        <TextBlock x:Name="StepTitle" FontSize="26" FontWeight="SemiBold" TextWrapping="Wrap"/>
+        <TextBlock x:Name="StepDetail" Margin="0,8,0,0" FontSize="14" LineHeight="21"
+                   TextWrapping="Wrap" Foreground="{DynamicResource Muted}"/>
+        <WrapPanel x:Name="StepActions" Margin="0,14,0,0"/>
+      </StackPanel>
+    </ScrollViewer>
+
+    <Border Grid.Row="2" BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0" Padding="0,13,0,0">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition/>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+        <Button x:Name="SkipButton" Content="Пропустить" HorizontalAlignment="Left" Background="Transparent"
+                Margin="0" Click="SkipClicked"/>
+        <Button x:Name="BackButton" Grid.Column="1" Content="Назад" MinWidth="76"
+                Margin="0,0,8,0" Click="BackClicked"/>
+        <Button x:Name="NextButton" Grid.Column="2" IsDefault="True" MinWidth="100" Margin="0"
+                Background="{DynamicResource Accent}" Foreground="{DynamicResource AccentText}" Click="NextClicked">
+          <Button.Template>
+            <ControlTemplate TargetType="Button">
+              <Border x:Name="ButtonSurface" CornerRadius="10" Background="{TemplateBinding Background}"
+                      Padding="12,8" MinHeight="34">
+                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+              </Border>
+              <ControlTemplate.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                  <Setter TargetName="ButtonSurface" Property="Opacity" Value="0.85"/>
+                </Trigger>
+                <Trigger Property="IsPressed" Value="True">
+                  <Setter TargetName="ButtonSurface" Property="Opacity" Value="0.72"/>
+                </Trigger>
+              </ControlTemplate.Triggers>
+            </ControlTemplate>
+          </Button.Template>
+        </Button>
+      </Grid>
+    </Border>
+  </Grid>
+</Window>

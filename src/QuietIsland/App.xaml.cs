@@ -10,6 +10,12 @@ public partial class App : System.Windows.Application
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        if (e.Args is ["--render-installer-preview", var artwork])
+        {
+            try { InstallerPreview.Write(artwork); Shutdown(0); }
+            catch (Exception error) { Log.Write("Installer preview", error); Shutdown(1); }
+            return;
+        }
         if (e.Args.Length >= 2 && e.Args[0] == "--media-fixture")
         {
             try { await MediaFixture.RunPlayerAsync(e.Args[1]); Shutdown(0); }
@@ -34,6 +40,7 @@ public partial class App : System.Windows.Application
         show = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\QuietIsland.Show." + suffix);
         if (!created) { show.Set(); Shutdown(); return; }
         var context = new IslandContext(); var window = new MainWindow(context); MainWindow = window; window.Show();
+        window.ShowTutorialIfPending();
         _ = Task.Run(() => { while (show.WaitOne()) Dispatcher.InvokeAsync(() => { if (!window.IsVisible) window.Show(); window.ShowPanel("search", true); }); });
     }
     protected override void OnExit(ExitEventArgs e) { show?.Dispose(); if (mutex != null) { try { mutex.ReleaseMutex(); } catch (ApplicationException) { } mutex.Dispose(); } base.OnExit(e); }
