@@ -1,5 +1,7 @@
-using System.Windows;
 using System.Security.Principal;
+using System.Windows;
+using System.Windows.Interop;
+using System.Windows.Media;
 using QuietIsland.Services;
 
 namespace QuietIsland;
@@ -7,6 +9,13 @@ public partial class App : System.Windows.Application
 {
     private Mutex? mutex;
     private EventWaitHandle? show;
+
+    public App()
+    {
+        // Apply this before any HWND is created so the always-on overlay avoids the hardware render path.
+        RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly;
+    }
+
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);

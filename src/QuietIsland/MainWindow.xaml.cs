@@ -14,6 +14,7 @@ namespace QuietIsland;
 
 public partial class MainWindow : Window
 {
+    private const double CompactSurfaceHeight = 128; // Room for a Bluetooth notice and the music contour at maximum size.
     private readonly IslandContext c;
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(250) };
     private readonly DispatcherTimer hover = new() { Interval = TimeSpan.FromMilliseconds(320) };
@@ -70,6 +71,7 @@ public partial class MainWindow : Window
     public MainWindow(IslandContext context, bool forSnapshot = false)
     {
         c = context; snapshot = forSnapshot; InitializeComponent();
+        if (!snapshot) Height = CompactSurfaceHeight;
         CompactLines.Children.Clear();
         compactTitleOverflow = new(CompactTitle); compactSubtitleOverflow = new(CompactSubtitle);
         compactTitleOverflow.HorizontalAlignment = compactSubtitleOverflow.HorizontalAlignment = HorizontalAlignment.Left;
@@ -343,6 +345,7 @@ public partial class MainWindow : Window
     internal void PreviewTransition(bool open) { expanded = open; AnimateShell(open, true); }
     private void AnimateShell(bool open, bool force = false, bool preserveContent = false)
     {
+        if (open) ResizeVisibleSurface();
         if (PresentBluetoothConnectionShell(force)) return;
         TimeSpan Duration(double ms) => TimeSpan.FromMilliseconds(ms / c.Settings.AnimationSpeed);
         var revision = ++transition;
@@ -350,7 +353,7 @@ public partial class MainWindow : Window
         void Finished()
         {
             if (revision != transition) return;
-            if (!open) { Panel.Visibility = Visibility.Collapsed; ReleaseView(); Body.Content = null; }
+            if (!open) { Panel.Visibility = Visibility.Collapsed; ReleaseView(); Body.Content = null; ResizeVisibleSurface(); }
             else Compact.Visibility = Visibility.Collapsed;
         }
         var animate = force || (!snapshot || mirrorOwner != null || NativeMotionProbe) && IsLoaded && !overlayBlocked;
@@ -422,15 +425,24 @@ public partial class MainWindow : Window
         Fluid.InvalidateVisual();
     }
     private System.Windows.Forms.Screen Screen => ResolveScreen();
+    private void ResizeVisibleSurface()
+    {
+        if (IsVisible && (!snapshot || mirrorOwner != null || NativeMotionProbe)) ResizeAndPosition(runtimeHidden);
+    }
+
     private void ResizeAndPosition(bool hidden = false)
     {
         hidden |= hiddenByUser || HiddenForCapture;
         var bounds = Screen.Bounds; var dpi = Native.MonitorDpi(Screen);
         var next = QuietIsland.Core.OverlayLayout.CalculateSize(bounds.Left, bounds.Top, bounds.Width, bounds.Height, dpi.X, dpi.Y, c.Settings.Scale, c.Settings.TopOffset, 744, Root.Height);
+        // Keep the monitor scale and top edge fixed while shortening the client area once the panel has folded away.
+        if (!expanded && Panel.Visibility != Visibility.Visible && Fluid.VisualHeight + c.Settings.MusicAmplitude <= CompactSurfaceHeight)
+            next = next with { Height = Math.Min(next.Height, (int)Math.Ceiling(CompactSurfaceHeight * next.Scale * dpi.Y)) };
         Scale.ScaleX = Scale.ScaleY = next.Scale;
-        Width = next.Width / dpi.X; Height = next.Height / dpi.Y;
         var handle = new WindowInteropHelper(this).Handle;
-        if (placement != next) { Native.SetWindowPos(handle, new IntPtr(-1), next.X, next.Y, next.Width, next.Height, 0x0010 | 0x0040); placement = next; NativePlacementChanges++; }
+        // WM_SIZE synchronizes WPF's dimensions after this single native resize.
+        if (placement != next && Native.SetWindowPos(handle, new IntPtr(-1), next.X, next.Y, next.Width, next.Height, 0x0010 | 0x0040))
+        { placement = next; NativePlacementChanges++; }
         // Clipping keeps a hidden island off adjacent monitors and removes its input area entirely.
         if (clipped != hidden) { Native.ClipOverlay(handle, hidden); clipped = hidden; }
     }

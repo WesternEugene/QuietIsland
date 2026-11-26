@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Windows.Interop;
 using System.Windows.Media;
 using QuietIsland.Services;
 
@@ -7,6 +8,7 @@ internal static class MotionChecks
 {
     public static async Task<object> RunAsync(string directory)
     {
+        var softwareRendering = RenderOptions.ProcessRenderMode == RenderMode.SoftwareOnly;
         using var c = new IslandContext(directory);
         var window = new MainWindow(c, true) { NativeMotionProbe = true };
         var preparation = Stopwatch.StartNew(); window.PrepareHome(); var preparationMilliseconds = preparation.Elapsed.TotalMilliseconds;
@@ -18,18 +20,32 @@ internal static class MotionChecks
             last = e.RenderingTime; frames++;
         }
         window.Show(); window.ApplySettings(); Native.ConfigureOverlay(window, false, false, true); await Task.Delay(120);
+        var handle = new WindowInteropHelper(window).Handle;
+        Native.RECT Bounds()
+        {
+            if (!Native.GetWindowRect(handle, out var bounds)) throw new InvalidOperationException("Cannot read the island window bounds.");
+            return bounds;
+        }
+        var compactBounds = Bounds();
         var before = window.NativePlacementChanges;
         var root = (Controls.RenderFrame)window.RenderRoot; var measureBefore = root.MeasurePasses; var arrangeBefore = root.ArrangePasses;
         window.RenderRoot.LayoutUpdated += (_, _) => layouts++;
         CompositionTarget.Rendering += Frame;
         var watch = Stopwatch.StartNew(); window.ShowPanel("home", false);
         var openAfterPreparationMilliseconds = watch.Elapsed.TotalMilliseconds;
+        var openingBounds = Bounds();
         await Task.Delay(650);
-        window.Collapse(); await Task.Delay(650);
+        var expandedBounds = Bounds();
+        window.Collapse(); var closingBounds = Bounds(); await Task.Delay(650);
         CompositionTarget.Rendering -= Frame;
         var nativePlacementChanges = window.NativePlacementChanges - before;
         var layoutSignals = layouts; var measurePasses = root.MeasurePasses - measureBefore; var arrangePasses = root.ArrangePasses - arrangeBefore;
-        Native.GetWindowRect(new System.Windows.Interop.WindowInteropHelper(window).Handle, out var rectangle);
+        var rectangle = Bounds();
+        var compactHeight = compactBounds.Bottom - compactBounds.Top;
+        var expandedHeight = expandedBounds.Bottom - expandedBounds.Top;
+        var compactUsesSmallerSurface = compactHeight * 3 < expandedHeight && rectangle.Equals(compactBounds)
+            && compactBounds.Left == expandedBounds.Left && compactBounds.Right == expandedBounds.Right && compactBounds.Top == expandedBounds.Top;
+        var stableNativeBounds = nativePlacementChanges <= 2 && openingBounds.Equals(expandedBounds) && closingBounds.Equals(expandedBounds);
         var transparentBoundsPassThrough = !OutsidePointer.IsOwnWindowAt(new((rectangle.Left + rectangle.Right) / 2, rectangle.Bottom - 5));
         var visibleNotchReceivesInput = OutsidePointer.IsOwnWindowAt(new((rectangle.Left + rectangle.Right) / 2, rectangle.Top + 15));
         c.Notify("Длинное уведомление должно оставаться внутри плавно расширяющейся чёлки");
@@ -58,9 +74,9 @@ internal static class MotionChecks
         var capsOffAnimates = badge.Opacity < .98 && ((TranslateTransform)badge.RenderTransform).Y < -.1; await Task.Delay(240);
         var inputAnimationsSettle = badge.Opacity > .99 && Math.Abs(((TranslateTransform)badge.RenderTransform).Y) < .01;
         var ordered = intervals.OrderBy(x => x).ToArray();
-        var result = new { nativePlacementChanges, layoutSignals, measurePasses, arrangePasses, frames, preparationMilliseconds, openAfterPreparationMilliseconds, frameMedianMs = ordered.Length > 0 ? ordered[ordered.Length / 2] : 0,
+        var result = new { nativePlacementChanges, compactHeight, expandedHeight, layoutSignals, measurePasses, arrangePasses, frames, preparationMilliseconds, openAfterPreparationMilliseconds, frameMedianMs = ordered.Length > 0 ? ordered[ordered.Length / 2] : 0,
             frameP95Ms = ordered.Length > 0 ? ordered[(int)((ordered.Length - 1) * .95)] : 0,
-            stableNativeBounds = nativePlacementChanges <= 1, noLayoutPerAnimationFrame = measurePasses < 8 && arrangePasses < 8, opensWithoutConstructionStall = openAfterPreparationMilliseconds < 50, transparentBoundsPassThrough, visibleNotchReceivesInput, compactTextStaysInsideSurface, outsidePixels, reversalKeepsPanelContent, layoutChangeAnimates, capsOnAnimates, capsOffAnimates, inputAnimationsSettle, fixture = "Own transparent WPF window; no desktop/audio capture or input injection" };
+            softwareRendering, compactUsesSmallerSurface, stableNativeBounds, noLayoutPerAnimationFrame = measurePasses < 8 && arrangePasses < 8, opensWithoutConstructionStall = openAfterPreparationMilliseconds < 50, transparentBoundsPassThrough, visibleNotchReceivesInput, compactTextStaysInsideSurface, outsidePixels, reversalKeepsPanelContent, layoutChangeAnimates, capsOnAnimates, capsOffAnimates, inputAnimationsSettle, fixture = "Own transparent WPF window; no desktop/audio capture or input injection" };
         window.Close(); return result;
     }
 }

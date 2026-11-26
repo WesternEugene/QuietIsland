@@ -73,7 +73,7 @@ public partial class MainWindow
         {
             if (!mirrors.TryGetValue(id, out var mirror))
             {
-                mirror = new MainWindow(c, true) { mirrorOwner = this, mirrorDevice = id, Owner = this };
+                mirror = new MainWindow(c, true) { mirrorOwner = this, mirrorDevice = id, Owner = this, Height = CompactSurfaceHeight };
                 mirrors[id] = mirror; mirror.Show();
             }
             mirror.ApplySettings();

@@ -58,7 +58,7 @@ public partial class MainWindow
             BluetoothConnectionDevices.SetBudget(width - 64);
             UpdatePanelClip();
             if (entering || motion.Active || Math.Abs(Fluid.VisualWidth - width) > .1 || Math.Abs(Fluid.VisualHeight - height) > .1)
-                motion.To(width, height, animate, easing: true);
+                motion.To(width, height, animate, ResizeVisibleSurface, easing: true);
             return true;
         }
         if (!bluetoothNoticeShowing) return false;
@@ -74,6 +74,7 @@ public partial class MainWindow
         motion.To(expanded ? 744 : compactWidth, expanded ? ExpandedShellHeight : compactHeight, animate, () =>
         {
             if (!expanded && !bluetoothNoticeShowing) { ReleaseView(); Body.Content = null; }
+            ResizeVisibleSurface();
         }, easing: true);
         if (!expanded && Root.IsMouseOver && !HasAlarm) hover.Start();
         return true;

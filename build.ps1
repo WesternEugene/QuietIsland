@@ -76,7 +76,7 @@ if ($Diagnose) {
     if (-not $report.desktopWorkflows -or $islandFailedWorkflows.Count -gt 0) { throw ('Проверки рабочих сценариев не прошли: ' + ($islandFailedWorkflows.Name -join ', ')) }
     $islandFailedInteractions = @($report.interactionWorkflows.PSObject.Properties | Where-Object { $_.Value -ne $true })
     if (-not $report.interactionWorkflows -or $islandFailedInteractions.Count -gt 0) { throw ('Проверки ярлыков, таймера и буфера не прошли: ' + ($islandFailedInteractions.Name -join ', ')) }
-    $islandMotionChecks = @('stableNativeBounds','noLayoutPerAnimationFrame','transparentBoundsPassThrough','visibleNotchReceivesInput','compactTextStaysInsideSurface','reversalKeepsPanelContent','layoutChangeAnimates','capsOnAnimates','capsOffAnimates','inputAnimationsSettle')
+    $islandMotionChecks = @('softwareRendering','compactUsesSmallerSurface','stableNativeBounds','noLayoutPerAnimationFrame','transparentBoundsPassThrough','visibleNotchReceivesInput','compactTextStaysInsideSurface','reversalKeepsPanelContent','layoutChangeAnimates','capsOnAnimates','capsOffAnimates','inputAnimationsSettle')
     $islandFailedMotion = @($islandMotionChecks | Where-Object { $report.motion.$_ -ne $true })
     if ($islandFailedMotion.Count -gt 0) { throw ('Проверки движения не прошли: ' + ($islandFailedMotion -join ', ')) }
     $islandMusicChecks = @('playingDetected','pauseDetected','waveMovesWhilePlaying','silenceStaysStill','amplitudeFollowsAudio','spectrumFollowsAudio','staleAudioExpires','coverDetected','lowerCornersReact','animationStops')
